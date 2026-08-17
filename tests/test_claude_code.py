@@ -204,10 +204,17 @@ class ArgvSafety(unittest.TestCase):
     otherwise become one."""
 
     def argv_for(self, text):
-        with mock.patch.object(ClaudeCodeProvider, "_stream", return_value="ok") as run:
-            ClaudeCodeProvider(model="sonnet").translate(
-                text, "auto", "Chinese (Simplified)", "PROMPT"
-            )
+        # `which` is patched because the provider refuses before it builds argv
+        # when the CLI is absent. Without this the test passes only on a machine
+        # that happens to have `claude` installed — which is not a test.
+        with mock.patch("lens.providers.claude_code.shutil.which",
+                        return_value="/bin/claude"):
+            with mock.patch.object(
+                ClaudeCodeProvider, "_stream", return_value="ok"
+            ) as run:
+                ClaudeCodeProvider(model="sonnet").translate(
+                    text, "auto", "Chinese (Simplified)", "PROMPT"
+                )
         return run.call_args[0][0]
 
     def test_a_selection_that_looks_like_a_flag_stays_a_positional(self):

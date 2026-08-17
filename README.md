@@ -524,7 +524,15 @@ python3 -m unittest discover -s tests -t .
 ```
 
 Provider, config, frame, and privacy tests all run without a network or a
-terminal. `herdr plugin log list` shows each action invocation with its exit
+terminal — nor any installed binary:
+
+```bash
+env PATH=/usr/bin:/bin python3 -m unittest discover -s tests -t .
+```
+
+That is CI's environment, reproduced locally. A test that passes only because
+`claude` happens to be installed is not testing anything, and this is the cheap
+way to find out. `herdr plugin log list` shows each action invocation with its exit
 code and stderr.
 
 ## License
