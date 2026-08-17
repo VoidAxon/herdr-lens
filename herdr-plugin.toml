@@ -1,7 +1,10 @@
 id = "herdr-lens"
 name = "Herdr Lens"
 version = "0.1.0"
-description = "Translate selected terminal text with AI, in a popup."
+# Shown in the marketplace listing and in `herdr plugin list`, so it has to
+# name all four behaviours: saying only "translate" hides the three a reader
+# would never guess were here.
+description = "Translate, look up, identify or summarise selected terminal text with AI, in a popup."
 min_herdr_version = "0.8.0"
 platforms = ["linux", "macos"]
 
@@ -10,7 +13,7 @@ platforms = ["linux", "macos"]
 [[actions]]
 id = "lens-translate"
 title = "Translate selection"
-description = "Translate the selected text into your configured language"
+description = "Translate the selection — a single word gets its reading and examples, an identifier gets identified"
 contexts = ["selection", "pane", "global"]
 command = [
   "python3", "-c",
