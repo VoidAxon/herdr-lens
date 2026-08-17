@@ -152,6 +152,14 @@ _DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5"
 # The CLI takes short aliases and resolves them to the current model.
 _DEFAULT_CLAUDE_CODE_MODEL = "sonnet"
 
+# One default per provider, so naming a provider without a model is enough.
+# Same values the detection above uses — a second table would drift from it.
+DEFAULT_MODELS = {
+    "anthropic": _DEFAULT_ANTHROPIC_MODEL,
+    "claude-code": _DEFAULT_CLAUDE_CODE_MODEL,
+    **{name: model for _, name, model in _CLOUD_PROVIDERS},
+}
+
 
 def _has_oauth_profile(env: dict[str, str]) -> bool:
     """True when `ant auth login` has stored credentials on this machine.
@@ -199,6 +207,14 @@ class Config:
     explain_prompt: str
     summarize_prompt: str
     word_lookup: bool
+    # An optional second provider, used only for single-word lookups. Exists
+    # because pronunciation is the one thing a fast hosted model got wrong in a
+    # way that matters: `verbose` came back as /ˈvɜːrbəs/ six times in eight,
+    # which is "VER-bus" for a word said "ver-BOSE". A dictionary entry is read
+    # as authoritative, so a confidently wrong reading ends up in your speech.
+    # Scoped to this one mode: sentences and summaries were fine, and routing
+    # them too would cost every translation the slower provider's latency.
+    word_ai: dict | None = None
     # Optional, and last, so adding one never touches an existing call site.
     timeout: float | None = None
     popup_width: str | None = None
@@ -271,6 +287,7 @@ def load(path: Path | None = None, env: dict[str, str] | None = None) -> Config:
         explain_prompt=prompt_table.get("explain") or DEFAULT_EXPLAIN_PROMPT,
         summarize_prompt=prompt_table.get("summarize") or DEFAULT_SUMMARIZE_PROMPT,
         word_lookup=raw.get("word_lookup", True),
+        word_ai=(ai.get("word") or None),
         popup_width=popup.get("width"),
         popup_height=popup.get("height"),
     )

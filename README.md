@@ -236,6 +236,11 @@ api_key_file = "~/.config/herdr/plugins/config/herdr-lens/groq.key"
 api_key_command = "pass show groq/api"   # or a keychain helper
 timeout = 15                     # seconds; raise it for slow models
 
+# Optional: a different provider for single-word lookups only. Naming the
+# provider is enough — it uses that provider's own default model.
+[ai.word]
+provider = "claude-code"
+
 [popup]
 width  = "47%"                   # overrides the plugin's own default
 height = "44%"
@@ -376,6 +381,39 @@ No key is ever stored in Lens's config.
 > call `/v1/messages` this way depends on your organization's setup. If it
 > can't, you get an explicit error rather than a silent failure — and the
 > Claude Code path above needs no credentials at all.
+
+### A second provider for the dictionary
+
+Pronunciation is the one output where a fast hosted model was wrong in a way
+that matters. Asked for `verbose`, Groq's `gpt-oss-120b` returned `/ˈvɜːrbəs/`
+six times in eight — that is "VER-bus" for a word said "ver-BOSE", stress and
+vowel both wrong. A dictionary entry reads as authoritative, so a wrong reading
+does not stay on the screen; it ends up in your speech.
+
+```toml
+[ai.word]
+provider = "claude-code"
+```
+
+Single-word lookups then go to the slower, more accurate provider and everything
+else stays where it was:
+
+| Selection | Provider | |
+|---|---|---|
+| `verbose` | Claude Code · sonnet | 7.5s |
+| `既定` | Claude Code · sonnet | 6.4s |
+| a sentence | Groq · gpt-oss-120b | 0.4s |
+| `SIGTERM` | Groq · gpt-oss-120b | 0.5s |
+| a build log | Groq · gpt-oss-120b | 0.8s |
+
+Only this one mode is routed. Sentences, identifiers and summaries were accurate
+on the fast provider, and sending them here too would cost every translation
+seven times the latency to fix a problem they do not have. A word lookup is also
+the one place where waiting is tolerable — you are reading to learn, not
+skimming.
+
+Note that Japanese readings were already correct on the fast provider (`既定` →
+`きてい`, kana rather than romaji). The gap is specifically English IPA.
 
 ### Picking a model
 

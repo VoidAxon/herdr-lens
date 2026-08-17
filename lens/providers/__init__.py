@@ -25,7 +25,44 @@ REGISTRY: dict[str, type[Provider]] = {
 __all__ = ["Provider", "ProviderError", "REGISTRY", "build"]
 
 
-def build(cfg: Config) -> Provider:
+def build(cfg: Config, mode: str = "") -> Provider:
+    """The provider for `mode`, which is the configured one unless overridden.
+
+    Only `[ai.word]` exists as an override, and only because a dictionary entry
+    is the one output read as authoritative — see Config.word_ai.
+    """
+    if mode == "word" and cfg.word_ai:
+        cfg = _overridden(cfg, cfg.word_ai)
+    return _build(cfg)
+
+
+def _overridden(cfg: Config, over: dict) -> Config:
+    import dataclasses
+
+    known = {f.name for f in dataclasses.fields(Config)}
+    changes = {k: v for k, v in over.items() if k in known}
+    unknown = set(over) - known
+    if unknown:
+        raise ProviderError(
+            f"Unknown key(s) under [ai.word]: {', '.join(sorted(unknown))}.",
+            f"Supported: {', '.join(sorted(known & _AI_KEYS))}",
+        )
+    # A provider named without a model must not inherit the outer one — that
+    # model belongs to a different provider. Fall back to the named provider's
+    # own default, so `provider = "claude-code"` on its own is enough.
+    named = changes.get("provider")
+    if named and "model" not in changes:
+        from ..config import DEFAULT_MODELS
+
+        changes["model"] = DEFAULT_MODELS.get(named)
+    return dataclasses.replace(cfg, **changes)
+
+
+_AI_KEYS = {"provider", "model", "endpoint", "api_key_env", "api_key_file",
+            "api_key_command", "auth", "timeout"}
+
+
+def _build(cfg: Config) -> Provider:
     if not cfg.provider:
         raise ProviderError(
             "No AI provider configured.",

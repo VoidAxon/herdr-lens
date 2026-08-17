@@ -90,7 +90,7 @@ def translate(job: dict, state: State, cfg: config.Config | None = None) -> None
             cfg = config.detect(config.load())
         selected = job["text"]
         kind = job.get("mode") or modes.classify(selected, cfg.word_lookup)
-        provider = build(cfg)
+        provider = build(cfg, kind)
         with state.lock:
             state.status = f"{provider.name} · {provider.model}"
             state.mode = kind

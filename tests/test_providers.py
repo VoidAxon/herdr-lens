@@ -1,6 +1,8 @@
 import os
 import tempfile
 import io
+import dataclasses
+from lens import config
 import unittest
 from pathlib import Path
 import urllib.error
@@ -535,3 +537,69 @@ class SelectionFraming(unittest.TestCase):
     def test_an_unknown_source_adds_nothing(self):
         p = REGISTRY["openai"](model="m", api_key_env=None)
         self.assertEqual(p._system_message("PROMPT", "auto"), "PROMPT")
+
+
+class WordProviderOverride(unittest.TestCase):
+    """`[ai.word]` routes single-word lookups elsewhere.
+
+    It exists for one measured reason: a fast hosted model returned /ˈvɜːrbəs/
+    for `verbose` six times in eight — the stress and the vowel both wrong — and
+    a dictionary entry is read as authoritative. Sentences and summaries were
+    fine, so nothing else is routed; paying the slower provider's latency on
+    every translation would be a worse trade than a wrong reading.
+    """
+
+    def cfg(self, **over):
+        base = config.load(Path("/nonexistent"), env={})
+        return dataclasses.replace(
+            base, provider="groq", model="openai/gpt-oss-120b", **over
+        )
+
+    def test_word_mode_uses_the_override(self):
+        cfg = self.cfg(word_ai={"provider": "claude-code", "model": "sonnet"})
+        self.assertEqual(build(cfg, "word").name, REGISTRY["claude-code"].name)
+
+    def test_every_other_mode_keeps_the_configured_provider(self):
+        cfg = self.cfg(word_ai={"provider": "claude-code", "model": "sonnet"})
+        for mode in ("general", "term", "explain", "summarize", ""):
+            with self.subTest(mode=mode):
+                self.assertEqual(build(cfg, mode).model, "openai/gpt-oss-120b")
+
+    def test_no_override_configured_changes_nothing(self):
+        cfg = self.cfg()
+        self.assertEqual(build(cfg, "word").model, "openai/gpt-oss-120b")
+
+    def test_a_new_provider_does_not_inherit_the_old_model(self):
+        """The outer model belongs to the outer provider; carrying it over
+        would send a Groq model name to Anthropic. Naming the provider alone
+        is enough — it falls back to that provider's own default."""
+        cfg = self.cfg(word_ai={"provider": "claude-code"})
+        p = build(cfg, "word")
+        self.assertNotEqual(p.model, "openai/gpt-oss-120b")
+        self.assertEqual(p.model, config.DEFAULT_MODELS["claude-code"])
+
+    def test_every_registered_provider_has_a_default_model(self):
+        """Otherwise `provider = "x"` alone fails with "no model configured",
+        which reads as a bug rather than a missing line."""
+        for name in REGISTRY:
+            if name in ("openai-compatible", "ollama"):
+                continue  # endpoint-defined: the model is genuinely unknowable
+            with self.subTest(provider=name):
+                self.assertIn(name, config.DEFAULT_MODELS)
+
+    def test_overriding_only_the_model_keeps_the_provider(self):
+        cfg = self.cfg(word_ai={"model": "openai/gpt-oss-20b"})
+        p = build(cfg, "word")
+        self.assertEqual(p.name, REGISTRY["groq"].name)
+        self.assertEqual(p.model, "openai/gpt-oss-20b")
+
+    def test_a_typo_is_reported_rather_than_ignored(self):
+        cfg = self.cfg(word_ai={"provder": "claude-code"})
+        with self.assertRaises(ProviderError) as raised:
+            build(cfg, "word")
+        self.assertIn("provder", str(raised.exception))
+
+    def test_the_override_can_carry_its_own_credentials(self):
+        cfg = self.cfg(word_ai={"provider": "openai", "model": "gpt-4o-mini",
+                                "api_key_env": "OTHER_KEY"})
+        self.assertEqual(build(cfg, "word").api_key_env, "OTHER_KEY")
