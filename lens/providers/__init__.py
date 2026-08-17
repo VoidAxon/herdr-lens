@@ -11,7 +11,8 @@ from .anthropic import AnthropicProvider
 from .base import Provider, ProviderError
 from .claude_code import ClaudeCodeProvider
 from .ollama import OllamaProvider
-from .openai import GroqProvider, OpenAICompatibleProvider, OpenAIProvider
+from .openai import (GeminiProvider, GroqProvider,
+                     OpenAICompatibleProvider, OpenAIProvider)
 
 REGISTRY: dict[str, type[Provider]] = {
     "anthropic": AnthropicProvider,
@@ -19,6 +20,7 @@ REGISTRY: dict[str, type[Provider]] = {
     "openai": OpenAIProvider,
     "openai-compatible": OpenAICompatibleProvider,
     "groq": GroqProvider,
+    "gemini": GeminiProvider,
     "ollama": OllamaProvider,
 }
 
@@ -66,8 +68,9 @@ def _build(cfg: Config) -> Provider:
     if not cfg.provider:
         raise ProviderError(
             "No AI provider configured.",
-            "Install the Claude Code CLI, export ANTHROPIC_API_KEY or "
-            "OPENAI_API_KEY, sign in with `ant auth login`, or run Ollama on "
+            "Install the Claude Code CLI, export ANTHROPIC_API_KEY, "
+            "OPENAI_API_KEY, GROQ_API_KEY or GEMINI_API_KEY, sign in with "
+            "`ant auth login`, or run Ollama on "
             "localhost:11434.\n"
             "To pick one explicitly, see the config file:\n"
             f"{_config_hint()}",

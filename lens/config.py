@@ -143,6 +143,9 @@ _CLOUD_PROVIDERS = [
     # mode against the candidates: this one gives kana for a Japanese word
     # and Japanese example sentences, which the alternatives got wrong.
     ("GROQ_API_KEY", "groq", "openai/gpt-oss-120b"),
+    # Google renames these often; a retired name gives an actionable 404 that
+    # says how to list the current ones.
+    ("GEMINI_API_KEY", "gemini", "gemini-3.7-flash"),
 ]
 
 _OLLAMA_ENDPOINT = "http://localhost:11434"

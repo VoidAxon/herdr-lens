@@ -47,3 +47,17 @@ class GroqProvider(OpenAIProvider):
 
     name = "Groq"
     default_endpoint = "https://api.groq.com/openai/v1"
+
+
+class GeminiProvider(OpenAIProvider):
+    """Gemini through Google's OpenAI-compatible endpoint.
+
+    Same reason GroqProvider exists: the protocol is identical, so only the URL
+    differs, and a named provider means the config does not have to carry it.
+
+    Google moved this path once already — it was `/v1beta/chat/completions`
+    before `/v1beta/openai/chat/completions` — so the endpoint stays overridable.
+    """
+
+    name = "Gemini"
+    default_endpoint = "https://generativelanguage.googleapis.com/v1beta/openai"

@@ -304,9 +304,14 @@ class Registry(unittest.TestCase):
         self.assertIn("ANTHROPIC_API_KEY", ctx.exception.hint)
 
     def test_unknown_provider_lists_the_supported_ones(self):
+        # Not a plausible provider name: this test used "gemini" until gemini
+        # became one, and then it silently started exercising a different path.
+        unknown = "definitely-not-a-provider"
+        self.assertNotIn(unknown, REGISTRY, "pick a name that cannot become real")
         with self.assertRaises(ProviderError) as ctx:
-            build(self.blank(provider="gemini"))
+            build(self.blank(provider=unknown))
         self.assertIn("ollama", ctx.exception.hint)
+        self.assertIn(unknown, str(ctx.exception))
 
     def test_missing_model_is_reported(self):
         with self.assertRaises(ProviderError):
@@ -603,3 +608,46 @@ class WordProviderOverride(unittest.TestCase):
         cfg = self.cfg(word_ai={"provider": "openai", "model": "gpt-4o-mini",
                                 "api_key_env": "OTHER_KEY"})
         self.assertEqual(build(cfg, "word").api_key_env, "OTHER_KEY")
+
+
+class Gemini(unittest.TestCase):
+    """Google's OpenAI-compatible endpoint, named so the config need not carry
+    a URL — the same reason `groq` is a named provider."""
+
+    def test_it_posts_to_the_openai_compatible_path(self):
+        p = REGISTRY["gemini"](model="gemini-3.7-flash", api_key_env=None)
+        rec = with_recorder(p, {"choices": [{"message": {"content": "x"}}]})
+        p.translate("verbose", "English", "Chinese (Simplified)", "PROMPT")
+        self.assertEqual(
+            rec.url,
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        )
+
+    def test_the_endpoint_stays_overridable(self):
+        """Google moved this path once already, from /v1beta/chat/completions."""
+        p = REGISTRY["gemini"](model="m", endpoint="https://example.com/v1")
+        rec = with_recorder(p, {"choices": [{"message": {"content": "x"}}]})
+        p.translate("hi", "auto", "zh-CN", "PROMPT")
+        self.assertEqual(rec.url, "https://example.com/v1/chat/completions")
+
+    def test_it_is_reachable_as_a_word_mode_override(self):
+        base = config.load(Path("/nonexistent"), env={})
+        cfg = dataclasses.replace(base, provider="groq", model="openai/gpt-oss-120b",
+                                  word_ai={"provider": "gemini"})
+        p = build(cfg, "word")
+        self.assertEqual(p.name, "Gemini")
+        self.assertEqual(p.model, config.DEFAULT_MODELS["gemini"])
+
+    def test_a_gemini_key_is_detected_without_any_config(self):
+        cfg = config.detect(
+            config.load(Path("/nonexistent"), env={}),
+            env={"GEMINI_API_KEY": "x"},
+        )
+        self.assertEqual(cfg.provider, "gemini")
+        self.assertEqual(cfg.api_key_env, "GEMINI_API_KEY")
+
+    def test_a_retired_model_name_gets_the_catalogue_hint(self):
+        p = REGISTRY["gemini"](model="gemini-1.0-gone", api_key_env=None)
+        hint = p._model_hint(404, "model_not_found")
+        self.assertIn("generativelanguage.googleapis.com", hint)
+        self.assertIn("/models", hint)

@@ -204,10 +204,11 @@ detects a provider in this order:
 1. `ANTHROPIC_API_KEY` is set → Anthropic API, `claude-sonnet-5`
 2. `OPENAI_API_KEY` is set → OpenAI API, `gpt-4o-mini`
 3. `GROQ_API_KEY` is set → Groq, `openai/gpt-oss-120b`
-4. the `claude` CLI is on PATH → **Claude Code** (see below)
-5. an `ant auth login` profile exists → Anthropic API over OAuth
-6. Ollama answering on `localhost:11434` → its first installed model
-7. none of the above → the popup tells you what to do
+4. `GEMINI_API_KEY` is set → Gemini, `gemini-3.7-flash`
+5. the `claude` CLI is on PATH → **Claude Code** (see below)
+6. an `ant auth login` profile exists → Anthropic API over OAuth
+7. Ollama answering on `localhost:11434` → its first installed model
+8. none of the above → the popup tells you what to do
 
 An exported key outranks everything else, matching Anthropic's own credential
 precedence — a key means you want the API directly, which is faster and does
@@ -228,7 +229,7 @@ word_lookup = true          # false disables dictionary mode entirely
 
 [ai]
 provider = "openai-compatible"   # anthropic | claude-code | openai | groq |
-                                 # ollama | openai-compatible
+                                 # gemini | ollama | openai-compatible
 model = "my-model"
 endpoint = "https://example.com/v1"
 api_key_env = "MY_AI_API_KEY"    # the variable NAME — never the key itself
@@ -329,6 +330,31 @@ matters. Weigh it against translation quality: the Llama models are strong on
 English prose, and worth checking on your own material before committing if you
 lean on the dictionary entries, which ask for kana readings, pinyin, and
 part-of-speech naming in the word's own language.
+
+### Gemini
+
+Gemini speaks the OpenAI protocol, so it needs no more than a name:
+
+```toml
+[ai]
+provider = "gemini"
+api_key_env = "GEMINI_API_KEY"
+```
+
+The endpoint defaults to `https://generativelanguage.googleapis.com/v1beta/openai`
+and stays overridable, because Google has already moved this path once — it was
+`/v1beta/chat/completions` before `/v1beta/openai/chat/completions`.
+
+Model names change often here. A retired one gives a 404 that says how to list
+the current ones.
+
+> [!WARNING]
+> **On Gemini's free tier, Google uses your content to improve their products.**
+> Their pricing page marks "Content used to improve our products" as *Yes* for
+> the free tier and *No* for paid. Everything you press the key on would be in
+> scope. For work code, internal identifiers, or customer data, that is a
+> different decision from choosing a fast provider — use the paid tier, another
+> provider, or a local model.
 
 ### Telling Lens what you read
 
@@ -481,6 +507,11 @@ guess.
 If the text must not leave the machine, run a local model — set `provider =
 "ollama"` and nothing goes further than `localhost:11434`. That is the only
 configuration in which no network request leaves your machine.
+
+Providers differ in what they do with what you send. Gemini's **free** tier uses
+your content to improve Google's products; its paid tier does not. Check the
+terms of whichever provider you configure — Lens cannot know them for you, and
+"free" and "private" are not the same axis.
 
 Note also that Lens reads the *clipboard*, because Herdr does not populate
 `selected_text` on the keybinding path. With `copy_on_select` enabled the
