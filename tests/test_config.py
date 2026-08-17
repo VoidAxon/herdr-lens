@@ -109,7 +109,7 @@ class Detection(unittest.TestCase):
         cfg = config.detect(self.blank(), env={"GROQ_API_KEY": "gsk-x"})
         self.assertEqual(cfg.provider, "groq")
         self.assertEqual(cfg.api_key_env, "GROQ_API_KEY")
-        self.assertEqual(cfg.model, "llama-3.3-70b-versatile")
+        self.assertEqual(cfg.model, "openai/gpt-oss-120b")
 
     def test_explicit_config_is_never_overridden_by_detection(self):
         cfg = self.blank()

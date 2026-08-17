@@ -1,5 +1,6 @@
 import os
 import tempfile
+import io
 import unittest
 from pathlib import Path
 import urllib.error
@@ -7,6 +8,7 @@ from io import BytesIO
 from unittest import mock
 
 from lens.config import Config
+from lens.providers import base
 from lens.providers import REGISTRY, ProviderError, build
 from lens.providers.anthropic import AnthropicProvider, oauth_token, speed_params
 from lens.providers.ollama import OllamaProvider
@@ -208,8 +210,13 @@ class OpenAI(unittest.TestCase):
 
         self.assertEqual(out, "默认情况下…")
         self.assertTrue(rec.url.endswith("/chat/completions"))
-        self.assertEqual(rec.body["messages"][0], {"role": "system", "content": PROMPT})
-        self.assertIn("en", rec.body["messages"][1]["content"])
+        system, user = rec.body["messages"]
+        # The prompt carries the instructions and the languages; the user turn
+        # carries the selection and nothing that could be mistaken for one.
+        self.assertTrue(system["content"].startswith(PROMPT))
+        self.assertIn("en", system["content"])
+        self.assertIn(TEXT, user["content"])
+        self.assertNotIn("Target language", user["content"])
 
     def test_empty_choices_yields_empty_string(self):
         p = OpenAIProvider(model="gpt-4o-mini")
@@ -319,7 +326,7 @@ class Groq(unittest.TestCase):
     remember the URL."""
 
     def test_the_endpoint_is_built_in(self):
-        p = REGISTRY["groq"](model="llama-3.3-70b-versatile", api_key_env=None)
+        p = REGISTRY["groq"](model="openai/gpt-oss-120b", api_key_env=None)
         rec = with_recorder(p, {"choices": [{"message": {"content": "默认情况下…"}}]})
         out = p.translate(TEXT, "English", "zh-CN", PROMPT)
         self.assertEqual(out, "默认情况下…")
@@ -435,3 +442,96 @@ class UserAgent(unittest.TestCase):
         rec = with_recorder(p, {"content": [{"type": "text", "text": "ok"}]})
         p.translate(TEXT, "auto", "zh-CN", PROMPT)
         self.assertEqual(rec.headers["anthropic-version"], "2023-06-01")
+
+
+class RetiredModel(unittest.TestCase):
+    """A hosted model that disappears is not an edge case — Groq removed this
+    plugin's own default. The error has to say what to do next, because the
+    provider's message only says what went wrong."""
+
+    BODY = (b'{"error":{"message":"The model `llama-3.3-70b-versatile` does not '
+            b'exist or you do not have access to it.","code":"model_not_found"}}')
+
+    def fail_with(self, code, body, provider="groq"):
+        p = REGISTRY[provider](model="dead-model", api_key_env=None)
+        err = urllib.error.HTTPError("u", code, "m", {}, io.BytesIO(body))
+        with mock.patch("urllib.request.urlopen", side_effect=err):
+            with self.assertRaises(ProviderError) as raised:
+                p.translate("hi", "auto", "Chinese (Simplified)", "PROMPT")
+        return raised.exception
+
+    def test_it_says_how_to_list_the_models_that_do_exist(self):
+        hint = self.fail_with(404, self.BODY).hint
+        self.assertIn("retired", hint)
+        self.assertIn("https://api.groq.com/openai/v1/models", hint)
+        self.assertIn("[ai]", hint, "point at where the fix goes")
+
+    def test_the_providers_own_message_is_kept_too(self):
+        hint = self.fail_with(404, self.BODY).hint
+        self.assertIn("model_not_found", hint)
+
+    def test_a_400_naming_the_model_gets_the_hint_as_well(self):
+        # Some providers answer 400 rather than 404 for an unknown model.
+        self.assertIn("retired", self.fail_with(400, self.BODY).hint)
+
+    def test_an_unrelated_error_gets_no_model_advice(self):
+        hint = self.fail_with(500, b'{"error":{"message":"internal"}}').hint
+        self.assertNotIn("retired", hint)
+
+    def test_a_rate_limit_gets_no_model_advice(self):
+        hint = self.fail_with(429, b'{"error":{"message":"rate limit"}}').hint
+        self.assertNotIn("retired", hint)
+
+    def test_providers_without_a_catalogue_stay_quiet(self):
+        """Nothing useful to suggest is better than a command that will fail."""
+        p = REGISTRY["anthropic"](model="dead", api_key_env=None)
+        self.assertEqual(p._model_hint(404, "model_not_found"), "")
+
+
+class SelectionFraming(unittest.TestCase):
+    """How the selection is handed over, for every HTTP provider at once.
+
+    Both rules here were learned the hard way. Framing prose placed beside the
+    text gets translated with it. And a bare word after a thin `---` rule does
+    not read as input: asked to define `verbose`, the model answered "please
+    provide the word" once in six tries.
+    """
+
+    PROVIDERS = ("openai", "groq", "openai-compatible", "ollama", "anthropic")
+
+    def send(self, name):
+        p = REGISTRY[name](model="m", api_key_env=None)
+        payload = {"choices": [{"message": {"content": "x"}}],
+                   "message": {"content": "x"},
+                   "content": [{"type": "text", "text": "x"}]}
+        rec = with_recorder(p, payload)
+        p.translate("verbose", "English", "Chinese (Simplified)", "PROMPT")
+        body = rec.body
+        system = body.get("system") or body["messages"][0]["content"]
+        user = body["messages"][-1]["content"]
+        return system, user
+
+    def test_the_selection_is_delimited(self):
+        for name in self.PROVIDERS:
+            with self.subTest(provider=name):
+                _, user = self.send(name)
+                self.assertTrue(user.startswith(base.SELECTION_OPEN))
+                self.assertTrue(user.rstrip().endswith(base.SELECTION_CLOSE))
+
+    def test_no_instruction_prose_shares_the_turn_with_the_text(self):
+        for name in self.PROVIDERS:
+            with self.subTest(provider=name):
+                _, user = self.send(name)
+                inner = user[len(base.SELECTION_OPEN):-len(base.SELECTION_CLOSE)]
+                self.assertEqual(inner.strip(), "verbose")
+
+    def test_the_source_language_travels_in_the_system_prompt(self):
+        for name in self.PROVIDERS:
+            with self.subTest(provider=name):
+                system, user = self.send(name)
+                self.assertIn("English", system)
+                self.assertNotIn("English", user)
+
+    def test_an_unknown_source_adds_nothing(self):
+        p = REGISTRY["openai"](model="m", api_key_env=None)
+        self.assertEqual(p._system_message("PROMPT", "auto"), "PROMPT")

@@ -14,7 +14,7 @@ class OllamaProvider(Provider):
             "model": self.model,
             "stream": False,
             "messages": [
-                {"role": "system", "content": prompt},
+                {"role": "system", "content": self._system_message(prompt, source)},
                 {"role": "user", "content": self._user_message(text, source, target)},
             ],
         }

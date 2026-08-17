@@ -10,6 +10,7 @@ from .base import Provider
 
 
 class OpenAIProvider(Provider):
+    models_path = "/models"
     name = "OpenAI"
     default_endpoint = "https://api.openai.com/v1"
 
@@ -17,7 +18,7 @@ class OpenAIProvider(Provider):
         body = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": prompt},
+                {"role": "system", "content": self._system_message(prompt, source)},
                 {"role": "user", "content": self._user_message(text, source, target)},
             ],
         }

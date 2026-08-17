@@ -203,7 +203,7 @@ detects a provider in this order:
 
 1. `ANTHROPIC_API_KEY` is set → Anthropic API, `claude-sonnet-5`
 2. `OPENAI_API_KEY` is set → OpenAI API, `gpt-4o-mini`
-3. `GROQ_API_KEY` is set → Groq, `llama-3.3-70b-versatile`
+3. `GROQ_API_KEY` is set → Groq, `openai/gpt-oss-120b`
 4. the `claude` CLI is on PATH → **Claude Code** (see below)
 5. an `ant auth login` profile exists → Anthropic API over OAuth
 6. Ollama answering on `localhost:11434` → its first installed model
@@ -314,7 +314,7 @@ Detected automatically. To pin the model:
 ```toml
 [ai]
 provider = "groq"
-model = "llama-3.3-70b-versatile"   # or llama-3.1-8b-instant for speed
+model = "openai/gpt-oss-120b"      # or openai/gpt-oss-20b, roughly twice as fast
 api_key_env = "GROQ_API_KEY"
 ```
 

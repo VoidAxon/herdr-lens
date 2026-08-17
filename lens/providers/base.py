@@ -16,6 +16,14 @@ from pathlib import Path
 # user. Give up early and say which provider stalled.
 TIMEOUT = 15.0
 
+# Named so the model cannot mistake the selection for part of the instructions,
+# and so nothing outside them looks like content. The CLI provider uses the same
+# pair for the same reason.
+SELECTION_OPEN = "<<<TERMINAL_TEXT"
+SELECTION_CLOSE = "TERMINAL_TEXT>>>"
+
+AUTO_SOURCE = "auto"
+
 # urllib's default is `Python-urllib/3.x`, which Cloudflare in front of some
 # providers rejects outright with a 403 and no useful message. Identifying the
 # client is the right thing to do anyway.
@@ -55,6 +63,10 @@ class Provider(ABC):
         self.auth = auth or "api_key"
 
     default_endpoint = ""
+
+    # Providers that expose an OpenAI-style catalogue set this, so a retired
+    # model can be diagnosed without leaving the popup.
+    models_path = ""
 
     @property
     def api_key(self) -> str:
@@ -159,7 +171,8 @@ class Provider(ABC):
             detail = exc.read().decode("utf-8", "replace")[:200].strip()
             raise ProviderError(
                 "The AI provider returned an error.",
-                f"{self.name} / {self.model} / HTTP {exc.code}\n{detail}",
+                f"{self.name} / {self.model} / HTTP {exc.code}\n{detail}"
+                + self._model_hint(exc.code, detail),
             ) from exc
         except urllib.error.URLError as exc:
             if isinstance(exc.reason, TimeoutError):
@@ -173,6 +186,26 @@ class Provider(ABC):
         except (OSError, ValueError) as exc:
             raise ProviderError("The AI provider request failed.", str(exc)) from exc
 
+    def _model_hint(self, code: int, detail: str) -> str:
+        """Extra guidance when the configured model no longer exists.
+
+        Hosted providers retire models without warning — this default was
+        `llama-3.3-70b-versatile` until Groq removed it — so the interesting
+        question is never "what went wrong" but "what may I use instead". The
+        raw provider message answers the first and not the second.
+        """
+        looks_missing = code in (400, 404) and (
+            "model_not_found" in detail or "does not exist" in detail
+        )
+        if not looks_missing or not self.models_path:
+            return ""
+        return (
+            "\n\nThe model may have been retired. List the ones available to you:\n"
+            f"  curl -s -H \"Authorization: Bearer $KEY\" {self.endpoint}{self.models_path}"
+            " | python3 -m json.tool\n"
+            "Then set `model` under [ai] in the config file."
+        )
+
     def _timeout(self) -> ProviderError:
         return ProviderError(
             "The AI provider took too long.",
@@ -180,5 +213,21 @@ class Provider(ABC):
         )
 
     def _user_message(self, text: str, source: str, target: str) -> str:
-        origin = "" if source == "auto" else f" The source language is {source}."
-        return f"Target language: {target}.{origin}\n\n---\n{text}"
+        """The selection, delimited, and nothing else.
+
+        Two lessons the CLI provider learned first. Prose framing that sits
+        beside the text gets translated along with it — a leading "Target
+        language: zh-CN." came back rendered in Chinese. And a bare word after a
+        thin `---` rule does not read as input at all: asked to define
+        `verbose`, the model answered "please provide the word" once in six
+        tries, because the scaffolding was longer than the content.
+
+        The language belongs in the system prompt, which already carries it.
+        """
+        return f"{SELECTION_OPEN}\n{text}\n{SELECTION_CLOSE}"
+
+    def _system_message(self, prompt: str, source: str) -> str:
+        """The prompt, plus the source language when it is known."""
+        if source == AUTO_SOURCE:
+            return prompt
+        return f"{prompt}\n\nThe text is written in {source}."

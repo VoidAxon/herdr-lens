@@ -103,7 +103,7 @@ class AnthropicProvider(Provider):
         body = {
             "model": self.model,
             "max_tokens": 8192,
-            "system": prompt,
+            "system": self._system_message(prompt, source),
             "messages": [{"role": "user", "content": self._user_message(text, source, target)}],
             **speed_params(self.model),
         }

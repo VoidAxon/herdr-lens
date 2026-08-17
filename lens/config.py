@@ -138,7 +138,11 @@ Rules:
 _CLOUD_PROVIDERS = [
     ("ANTHROPIC_API_KEY", "anthropic", "claude-sonnet-5"),
     ("OPENAI_API_KEY", "openai", "gpt-4o-mini"),
-    ("GROQ_API_KEY", "groq", "llama-3.3-70b-versatile"),
+    # Groq retires models without warning — llama-3.3-70b-versatile was the
+    # default here until it started returning 404. Chosen by running every
+    # mode against the candidates: this one gives kana for a Japanese word
+    # and Japanese example sentences, which the alternatives got wrong.
+    ("GROQ_API_KEY", "groq", "openai/gpt-oss-120b"),
 ]
 
 _OLLAMA_ENDPOINT = "http://localhost:11434"
