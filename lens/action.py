@@ -1,0 +1,208 @@
+"""Process 1: the action shim.
+
+A keybinding can only invoke an *action*, and only an action can open a plugin
+pane — so this exists purely to grab the selection and hand it to the popup.
+It must stay fast and must never call the AI provider: the popup has to be on
+screen before the network request starts.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+import uuid
+from pathlib import Path
+
+from . import config, selection
+
+PLUGIN_ID = "herdr-lens"
+
+# Which action fired is the only way to know what the user wants: the same
+# selection can legitimately be translated, explained, or summarised, and the
+# text itself cannot say which. Translation alone is inferred from content.
+FORCED_MODES = {"explain": "explain", "summarize": "summarize"}
+VIEWER_ENTRYPOINT = "viewer"
+# A job is consumed about 180 ms after it is written. Anything still on disk
+# after a minute belongs to a popup that never opened, and the selection it
+# holds should not outlive the attempt to show it.
+JOB_TTL_SECONDS = 60
+
+
+def job_dir() -> Path:
+    root = os.environ.get("HERDR_PLUGIN_STATE_DIR")
+    base = Path(root) if root else Path.home() / ".local/state/herdr/plugins/herdr-lens"
+    return base / "jobs"
+
+
+def sweep(directory: Path | None = None) -> None:
+    """Drop job files a viewer never consumed (crash, popup refused to open).
+
+    Called from both processes: the action sweeps before writing, and the
+    viewer sweeps on startup. Neither alone is enough — sweeping only at write
+    time leaves an orphan on disk indefinitely if the user never translates
+    again, which is the one case where a selection outlives its popup.
+    """
+    directory = job_dir() if directory is None else directory
+    cutoff = time.time() - JOB_TTL_SECONDS
+    try:
+        for stale in directory.glob("*.json"):
+            if stale.stat().st_mtime < cutoff:
+                stale.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def write_job(payload: dict, directory: Path | None = None) -> Path:
+    """Persist the request for the viewer.
+
+    A file rather than an env var: selections are unbounded, argv/env are not,
+    and the state dir is already private to this plugin.
+    """
+    directory = job_dir() if directory is None else directory
+    directory.mkdir(parents=True, exist_ok=True)
+    sweep(directory)
+    path = directory / f"{uuid.uuid4().hex}.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    path.chmod(0o600)
+    return path
+
+
+def api(method: str, params: dict) -> dict | None:
+    """Call Herdr's socket API, or None if it cannot be reached.
+
+    Herdr hands every plugin process `HERDR_SOCKET_PATH` precisely so it can
+    call back like this. The socket accepts geometry that this build's CLI
+    does not expose, which is the only way `[popup] width/height` can be
+    honoured at all.
+    """
+    path = os.environ.get("HERDR_SOCKET_PATH")
+    if not path:
+        return None
+    request = json.dumps({"id": "lens", "method": method, "params": params})
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(10)
+            sock.connect(path)
+            sock.sendall((request + "\n").encode("utf-8"))
+            return json.loads(sock.makefile().readline() or "{}")
+    except (OSError, ValueError):
+        return None
+
+
+def close_popup() -> bool:
+    """Close whatever popup is open.
+
+    Herdr permits one popup at a time, and the open one does not appear in
+    `pane list`, so there is no id to close it by — but `popup.close` needs
+    no id.
+    """
+    reply = api("popup.close", {})
+    return reply is not None and "error" not in reply
+
+
+def notify(title: str, body: str = "") -> None:
+    """The only channel available when a popup cannot be opened.
+
+    Without it the keypress does nothing visible while an older popup sits
+    on screen showing an older answer — which reads as a stale result rather
+    than a refused request.
+    """
+    herdr = os.environ.get("HERDR_BIN_PATH") or "herdr"
+    argv = [herdr, "notification", "show", title]
+    if body:
+        argv += ["--body", body]
+    try:
+        subprocess.run(argv, capture_output=True, timeout=5, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def popup_size() -> dict:
+    """The configured popup geometry, if any.
+
+    Read here rather than in the viewer because the size has to be decided
+    before the pane exists. Reading the config costs about a millisecond and
+    only touches the `[popup]` table; a broken config must not stop the popup
+    from opening, since the popup is where that error gets reported.
+    """
+    try:
+        cfg = config.load()
+    except Exception:  # noqa: BLE001 - the viewer will report it properly
+        return {}
+    return {k: v for k, v in
+            (("width", cfg.popup_width), ("height", cfg.popup_height)) if v}
+
+
+def open_popup(job_path: Path, retry: bool = True) -> int:
+    params = {
+        "plugin_id": PLUGIN_ID,
+        "entrypoint": VIEWER_ENTRYPOINT,
+        "placement": "popup",
+        "focus": True,
+        "env": {"LENS_JOB": str(job_path)},
+        **popup_size(),
+    }
+    reply = api("plugin.pane.open", params)
+    if reply is None:
+        # No socket. Nothing has honoured the geometry, but a popup at the
+        # manifest's size beats no popup at all.
+        return open_popup_via_cli(job_path)
+
+    error = reply.get("error")
+    if not error:
+        return 0
+
+    detail = str(error.get("message", error))
+    sys.stderr.write(detail + "\n")
+    # Pressing the key must always answer the selection just made. An older
+    # popup still on screen is a stale answer, not a reason to refuse — so
+    # replace it rather than reporting a conflict.
+    if retry and "popup already open" in detail and close_popup():
+        return open_popup(job_path, retry=False)
+    notify("Lens could not open", detail.strip()[:120])
+    return 1
+
+
+def open_popup_via_cli(job_path: Path) -> int:
+    """Fallback for when the socket is unreachable."""
+    herdr = os.environ.get("HERDR_BIN_PATH") or "herdr"
+    argv = [
+        herdr, "plugin", "pane", "open",
+        "--plugin", PLUGIN_ID,
+        "--entrypoint", VIEWER_ENTRYPOINT,
+        "--focus",
+        "--env", f"LENS_JOB={job_path}",
+    ]
+    try:
+        result = subprocess.run(argv, capture_output=True, timeout=10, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"herdr-lens: could not open popup: {exc}", file=sys.stderr)
+        return 1
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", "replace")
+        sys.stderr.write(detail)
+        notify("Lens could not open", detail.strip()[:120])
+    return result.returncode
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    action = argv[0] if argv else "translate"
+
+    sel = selection.acquire()
+    payload = {
+        "action": action,
+        "mode": FORCED_MODES.get(action),
+        "text": sel.text,
+        "selection_source": sel.source,
+        "selection_backend": sel.backend,
+    }
+    return open_popup(write_job(payload))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

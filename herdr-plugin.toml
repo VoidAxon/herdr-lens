@@ -1,0 +1,74 @@
+id = "herdr-lens"
+name = "Herdr Lens"
+version = "0.1.0"
+description = "Translate selected terminal text with AI, in a popup."
+min_herdr_version = "0.8.0"
+platforms = ["linux", "macos"]
+
+# Action ids resolve in a global namespace across all installed plugins, so this
+# is deliberately prefixed rather than being a bare "translate".
+[[actions]]
+id = "lens-translate"
+title = "Translate selection"
+description = "Translate the selected text into your configured language"
+contexts = ["selection", "pane", "global"]
+command = [
+  "python3", "-c",
+  "import os,sys,runpy; sys.path.insert(0, os.environ['HERDR_PLUGIN_ROOT']); runpy.run_module('lens.action', run_name='__main__')",
+  "translate",
+]
+
+[[actions]]
+id = "lens-explain"
+title = "Explain selection"
+description = "Say what the selected text is and what it means"
+contexts = ["selection", "pane", "global"]
+command = [
+  "python3", "-c",
+  "import os,sys,runpy; sys.path.insert(0, os.environ['HERDR_PLUGIN_ROOT']); runpy.run_module('lens.action', run_name='__main__')",
+  "explain",
+]
+
+[[actions]]
+id = "lens-summarize"
+title = "Summarise selection"
+description = "Condense a long stretch of terminal output"
+contexts = ["selection", "pane", "global"]
+command = [
+  "python3", "-c",
+  "import os,sys,runpy; sys.path.insert(0, os.environ['HERDR_PLUGIN_ROOT']); runpy.run_module('lens.action', run_name='__main__')",
+  "summarize",
+]
+
+[[actions]]
+id = "lens-setup"
+title = "Set up Lens keybindings"
+description = "Add the Lens keys to your Herdr config"
+command = [
+  "python3", "-c",
+  "import os,sys,runpy; sys.path.insert(0, os.environ['HERDR_PLUGIN_ROOT']); runpy.run_module('lens.setup', run_name='__main__')",
+]
+
+[[actions]]
+id = "lens-remove-keys"
+title = "Remove Lens keybindings"
+description = "Take the Lens keys back out of your Herdr config"
+command = [
+  "python3", "-c",
+  "import os,sys,runpy; sys.path.insert(0, os.environ['HERDR_PLUGIN_ROOT']); runpy.run_module('lens.setup', run_name='__main__')",
+  "remove",
+]
+
+[[panes]]
+id = "viewer"
+title = "Lens"
+placement = "popup"
+# Narrower than a terminal's full width reads better for prose, and a
+# translation is prose. Height compensates: the same text needs more rows once
+# the lines are shorter.
+width = "47%"
+height = "44%"
+command = [
+  "python3", "-c",
+  "import os,sys,runpy; sys.path.insert(0, os.environ['HERDR_PLUGIN_ROOT']); runpy.run_module('lens.viewer', run_name='__main__')",
+]

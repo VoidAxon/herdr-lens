@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Superseded first draft. Kept on disk, out of the repo: shipping two specs
+# that disagree is worse than shipping one.
+herdr-lens-spec.v1.md
+herdr-lens-spec.md
