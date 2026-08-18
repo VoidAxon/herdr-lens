@@ -37,6 +37,38 @@ EXPRESSION = (
 TIMEOUT = 2.0
 
 
+def _children(pid: int) -> list[int]:
+    """Direct children of `pid`.
+
+    `/proc` first because it costs nothing, then `pgrep`, because macOS has no
+    `/proc` at all — and this plugin claims to support macOS. Without the
+    fallback the Neovim path silently fails there in exactly the way it failed
+    on Linux before the fork was accounted for.
+    """
+    children: list[int] = []
+    try:
+        for task in Path(f"/proc/{pid}/task").iterdir():
+            # Read inside the loop, not around the call: `iterdir` is a
+            # generator, so a missing directory raises here rather than above.
+            try:
+                children += [int(c) for c in (task / "children").read_text().split()]
+            except (OSError, ValueError):
+                continue
+        return children
+    except OSError:
+        pass
+
+    pgrep = shutil.which("pgrep")
+    if not pgrep:
+        return []
+    try:
+        result = subprocess.run([pgrep, "-P", str(pid)],
+                                capture_output=True, timeout=2, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return [int(line) for line in result.stdout.split() if line.isdigit()]
+
+
 def _descendants(pid: int, depth: int = 2) -> list[int]:
     """`pid` and its children, because an interactive Neovim forks.
 
@@ -51,18 +83,8 @@ def _descendants(pid: int, depth: int = 2) -> list[int]:
     found = [pid]
     frontier = [pid]
     for _ in range(depth):
-        children: list[int] = []
-        for parent in frontier:
-            try:
-                tasks = Path(f"/proc/{parent}/task").iterdir()
-            except OSError:
-                continue
-            for task in tasks:
-                try:
-                    raw = (task / "children").read_text()
-                except OSError:
-                    continue
-                children += [int(c) for c in raw.split()]
+        children = [c for parent in frontier for c in _children(parent)]
+        children = [c for c in children if c not in found]
         if not children:
             break
         found += children

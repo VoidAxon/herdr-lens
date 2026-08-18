@@ -87,14 +87,18 @@ class ForkedProcess(unittest.TestCase):
                     found = nvim.socket_for(100, {"XDG_RUNTIME_DIR": tmp})
         self.assertTrue(found.endswith("nvim.100.0"), found)
 
-    def test_descendants_reads_a_real_process_tree(self):
-        """Parsed from /proc, so it is worth checking against a real one."""
-        parent = subprocess.Popen(
+    def spawn_with_child(self):
+        return subprocess.Popen(
             ["bash", "-c", "sleep 5 & wait"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
+
+    def test_descendants_reads_a_real_process_tree(self):
+        """Read from the operating system, so it is worth checking against a
+        real one rather than a stubbed /proc."""
+        parent = self.spawn_with_child()
         try:
-            time.sleep(0.5)
+            time.sleep(0.6)
             found = nvim._descendants(parent.pid)
             self.assertIn(parent.pid, found)
             self.assertGreater(len(found), 1, "the child was not found")
@@ -102,8 +106,29 @@ class ForkedProcess(unittest.TestCase):
             parent.kill()
             parent.wait(timeout=5)
 
-    def test_descendants_of_a_dead_pid_is_just_itself(self):
+    def test_it_works_without_proc(self):
+        """macOS has no /proc, and this plugin claims to support macOS. Without
+        a fallback the Neovim path fails there exactly as it failed on Linux
+        before the fork was accounted for."""
+        parent = self.spawn_with_child()
+        try:
+            time.sleep(0.6)
+            with mock.patch.object(Path, "iterdir", side_effect=OSError("no /proc")):
+                found = nvim._children(parent.pid)
+            self.assertTrue(found, "pgrep fallback found nothing")
+        finally:
+            parent.kill()
+            parent.wait(timeout=5)
+
+    def test_a_dead_pid_is_quiet(self):
+        """`iterdir` is a generator, so a missing directory raises while being
+        iterated, not when it is called — the try has to wrap the loop."""
         self.assertEqual(nvim._descendants(999999), [999999])
+        self.assertEqual(nvim._children(999999), [])
+
+    def test_a_cycle_cannot_loop_forever(self):
+        with mock.patch.object(nvim, "_children", side_effect=lambda p: [p]):
+            self.assertEqual(nvim._descendants(7), [7])
 
 
 class Expression(unittest.TestCase):
