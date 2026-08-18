@@ -54,6 +54,58 @@ class SocketDiscovery(unittest.TestCase):
         )
 
 
+class ForkedProcess(unittest.TestCase):
+    """An interactive Neovim forks, and the socket is named after the child.
+
+    This is the bug that shipped. A `--headless` Neovim does not fork, so the
+    test setup matched the pid the socket was named after and the code looked
+    correct. Against a real one:
+
+        herdr reports    584324
+        socket is        nvim.584325.0
+        584325's parent  584324
+
+    The test environment was simpler than the thing it stood for, which is the
+    failure mode a mock cannot warn you about.
+    """
+
+    def test_a_child_pids_socket_is_found(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "nvim.584325.0").touch()
+            with mock.patch.object(nvim, "_descendants",
+                                   return_value=[584324, 584325]):
+                with mock.patch.object(Path, "is_socket", return_value=True):
+                    found = nvim.socket_for(584324, {"XDG_RUNTIME_DIR": tmp})
+        self.assertTrue(found.endswith("nvim.584325.0"), found)
+
+    def test_the_parents_own_socket_still_wins_when_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "nvim.100.0").touch()
+            (Path(tmp) / "nvim.101.0").touch()
+            with mock.patch.object(nvim, "_descendants", return_value=[100, 101]):
+                with mock.patch.object(Path, "is_socket", return_value=True):
+                    found = nvim.socket_for(100, {"XDG_RUNTIME_DIR": tmp})
+        self.assertTrue(found.endswith("nvim.100.0"), found)
+
+    def test_descendants_reads_a_real_process_tree(self):
+        """Parsed from /proc, so it is worth checking against a real one."""
+        parent = subprocess.Popen(
+            ["bash", "-c", "sleep 5 & wait"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        try:
+            time.sleep(0.5)
+            found = nvim._descendants(parent.pid)
+            self.assertIn(parent.pid, found)
+            self.assertGreater(len(found), 1, "the child was not found")
+        finally:
+            parent.kill()
+            parent.wait(timeout=5)
+
+    def test_descendants_of_a_dead_pid_is_just_itself(self):
+        self.assertEqual(nvim._descendants(999999), [999999])
+
+
 class Expression(unittest.TestCase):
     def test_it_uses_the_live_positions_not_the_marks(self):
         """`'<` and `'>` are written when visual mode ends, so they read as

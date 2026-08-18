@@ -37,22 +37,57 @@ EXPRESSION = (
 TIMEOUT = 2.0
 
 
+def _descendants(pid: int, depth: int = 2) -> list[int]:
+    """`pid` and its children, because an interactive Neovim forks.
+
+    Herdr reports the process it launched; the socket is named after whichever
+    process actually opened it, and those are not the same pid. A `--headless`
+    Neovim does not fork, which is why this only shows up against a real one:
+
+        herdr says       584324
+        socket is        nvim.584325.0
+        584325's parent  584324
+    """
+    found = [pid]
+    frontier = [pid]
+    for _ in range(depth):
+        children: list[int] = []
+        for parent in frontier:
+            try:
+                tasks = Path(f"/proc/{parent}/task").iterdir()
+            except OSError:
+                continue
+            for task in tasks:
+                try:
+                    raw = (task / "children").read_text()
+                except OSError:
+                    continue
+                children += [int(c) for c in raw.split()]
+        if not children:
+            break
+        found += children
+        frontier = children
+    return found
+
+
 def socket_for(pid: int, env: dict[str, str] | None = None) -> str:
-    """Neovim's own RPC socket for `pid`, or "" if it is not there.
+    """Neovim's own RPC socket for `pid` or one of its children, or "".
 
     Globbed rather than assembled: the trailing index is not always 0, and the
     runtime directory moves with `$XDG_RUNTIME_DIR`.
     """
     env = os.environ if env is None else env
     runtime = env.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
-    for base in (Path(runtime), Path(env.get("TMPDIR", "/tmp"))):
-        try:
-            matches = sorted(base.glob(f"nvim.{pid}.*"))
-        except OSError:
-            continue
-        for match in matches:
-            if match.is_socket():
-                return str(match)
+    bases = (Path(runtime), Path(env.get("TMPDIR", "/tmp")))
+    for candidate in _descendants(pid):
+        for base in bases:
+            try:
+                matches = sorted(base.glob(f"nvim.{candidate}.*"))
+            except OSError:
+                continue
+            for match in matches:
+                if match.is_socket():
+                    return str(match)
     return ""
 
 
