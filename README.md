@@ -81,13 +81,32 @@ It shares the plugin's config file, so a provider set up for one works for the
 other. Output streams when stdout is a terminal and arrives whole when it is a
 pipe — a partial value down a pipe reads as a complete one.
 
+## Windows
+
+WSL works: the plugin sees Linux, and nothing here knows the difference.
+
+Herdr itself runs on native Windows, but this plugin declares `platforms =
+["linux", "macos"]` and means it. The popup reads keys through `termios`, `tty`
+and `select()` on stdin — none of which Windows has, and `select()` there works
+on sockets only. Neovim's RPC endpoint is a named pipe rather than a Unix socket,
+so the selection lookup would need its own path as well.
+
+None of that is unportable in principle: `msvcrt` is in the standard library and
+would cover the input layer. The reason it is not claimed is that it cannot be
+tested from here, and a plugin listed as Windows-compatible that then fails is
+worse than one that says where it runs.
+
+The plain command has no such dependency — it never touches a terminal, and a
+test asserts it imports without `termios` — so `lens "text"` is the part most
+likely to work there already, given Python 3.11+.
+
 ## Requirements
 
 | | |
 |---|---|
 | Herdr | 0.8.0 or newer |
 | Python | 3.11+ (for `tomllib`), standard library only — nothing to `pip install` |
-| Platforms | Linux, macOS. The popup drives the terminal through `termios`/`tty`, which Windows does not provide. |
+| Platforms | Linux, macOS — including WSL, which is Linux as far as the plugin is concerned. See [Windows](#windows). |
 | A provider | An API key, the `claude` CLI, or Ollama — see [Configuration](#configuration) |
 
 ## Install

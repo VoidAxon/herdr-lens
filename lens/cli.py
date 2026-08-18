@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import sys
 
-from . import config, mode as modes, viewer
+from . import config, mode as modes
 from .providers import ProviderError, build
 from .ui import frame
 

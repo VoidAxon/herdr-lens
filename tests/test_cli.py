@@ -7,6 +7,8 @@ exit code says.
 """
 
 import io
+import sys
+from pathlib import Path
 import unittest
 from unittest import mock
 
@@ -136,3 +138,39 @@ class Running(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Portability(unittest.TestCase):
+    """The CLI must not need what only the popup needs.
+
+    `viewer` imports termios and tty at module level, so importing it dragged
+    the whole POSIX terminal layer into a code path that never touches a
+    terminal — and made `lens "text"` impossible on Windows for no reason.
+    """
+
+    def test_the_cli_imports_without_termios_or_tty(self):
+        import importlib
+        import importlib.abc
+
+        class Absent(importlib.abc.MetaPathFinder):
+            def find_spec(self, name, path=None, target=None):
+                if name in ("termios", "tty"):
+                    raise ModuleNotFoundError(f"No module named {name!r}")
+
+        blocked = Absent()
+        saved = {name: sys.modules.pop(name, None)
+                 for name in list(sys.modules)
+                 if name.startswith("lens")}
+        sys.meta_path.insert(0, blocked)
+        try:
+            importlib.import_module("lens.cli")
+        finally:
+            sys.meta_path.remove(blocked)
+            for name, module in saved.items():
+                if module is not None:
+                    sys.modules[name] = module
+
+    def test_it_does_not_import_the_popup(self):
+        source = (Path(__file__).resolve().parent.parent / "lens" / "cli.py").read_text()
+        self.assertNotIn("import viewer", source)
+        self.assertNotIn("from .viewer", source)
