@@ -1,0 +1,18 @@
+$ man grep | head -20
+
+NAME
+       grep - print lines that match patterns
+
+DESCRIPTION
+       grep searches for PATTERNS in each FILE.  A pattern is
+       a sequence of characters. Typically PATTERNS should be
+       quoted when grep is used in a shell command.
+
+       -v, --invert-match
+              Select non-matching lines. This option is
+              particularly verbose when combined with -c.
+
+$ kill -l | head -3
+ 1) SIGHUP   2) SIGINT   3) SIGQUIT
+ 4) SIGILL   5) SIGTRAP  6) SIGABRT
+15) SIGTERM 16) SIGSTKFLT

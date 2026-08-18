@@ -55,6 +55,32 @@ required, no API key if you already have Claude Code.
   Lens renders, so a crafted selection cannot write your clipboard or repaint
   your screen. See [Security](#security).
 
+## Without Herdr
+
+The plugin needs Herdr because a keybinding cannot open a popup by itself. The
+translation never did, so the same thing runs as a plain command — in any
+terminal, and in pipes, which no popup can serve:
+
+```bash
+lens "By default, grep prints the matching lines."
+#   默认情况下，grep 会打印匹配的行。
+
+lens verbose                       # a word still gets the dictionary
+kubectl logs pod-xyz | lens --summarize
+lens --explain 'git rebase --onto main feature~3 feature'
+lens --target ja "…"               # override the configured language
+```
+
+From a clone, `python3 -m lens`. To get the short name:
+
+```bash
+alias lens='python3 -m lens'       # with the clone on PYTHONPATH
+```
+
+It shares the plugin's config file, so a provider set up for one works for the
+other. Output streams when stdout is a terminal and arrives whole when it is a
+pipe — a partial value down a pipe reads as a complete one.
+
 ## Requirements
 
 | | |
