@@ -60,6 +60,9 @@ def fake_api(*replies, size=None):
         "lens.action",
         api=api,
         popup_size=mock.Mock(return_value=size or {}),
+        # A separate concern from opening a popup, and it would otherwise spend
+        # one of the api replies queued above.
+        editor_selection=mock.Mock(return_value=""),
     ), api
 
 

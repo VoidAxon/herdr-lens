@@ -575,14 +575,35 @@ Ctrl-B Alt-T
 The AI request lives in the popup, never in the action. That is what makes the
 popup appear before the network round-trip instead of after it.
 
-### Selecting inside vim, less, or htop
+### Selecting inside Neovim
 
 A full-screen program that turns on mouse reporting owns the drag — Neovim does
 by default (`mouse=a`). Herdr never sees a selection, so `copy_on_select` cannot
-fire, and the clipboard still holds whatever was copied before. Left alone, the
-popup would then answer about *that*, confidently and about the wrong text.
+fire, and the clipboard still holds whatever was copied before.
 
-So Lens does not open the popup at all. It asks Herdr what is running, notices
+For Neovim, Lens asks Neovim. Every instance runs an RPC server without being
+told to, so the drag you just made is readable directly:
+
+```
+nvim --server $XDG_RUNTIME_DIR/nvim.<pid>.0 --remote-expr \
+  'join(getregion(getpos("v"), getpos("."), {"type": mode()}), "\n")'
+```
+
+Mouse drag, `v`, `V`, `Ctrl-V` — all of them work, and the clipboard is not
+involved. Measured at 4 ms, and it is a pure read: afterwards you are still in
+visual mode and your `"0` register is untouched. (The usual advice is to send `y`
+and read `"0`, which costs you both.)
+
+`getpos("v")` rather than the `'<` mark, because `'<` is only written when visual
+mode *ends* — it reads as zeros at exactly the moment the key is pressed.
+
+### Selecting inside less, htop, or classic Vim
+
+The same trick needs a program that answers questions, and these do not. Classic
+Vim has `+clientserver`, but the registry needs an X server and there is no
+`getregion()` to call.
+
+There Lens does not open the popup at all. It asks Herdr what is running, notices
 the clipboard has not changed either, and raises a notification instead:
 
 > **nvim has the mouse** — Herdr never saw the selection, so Lens would
@@ -590,7 +611,7 @@ the clipboard has not changed either, and raises a notification instead:
 > key again.
 
 Both conditions are needed, and either one alone is normal. `"+y` changes the
-clipboard, so a yank in vim opens the popup as usual:
+clipboard, so a yank opens the popup as usual:
 
 ```vim
 "+y      " yank the visual selection to the system clipboard

@@ -18,7 +18,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import config, selection
+from . import config, nvim, selection
 
 PLUGIN_ID = "herdr-lens"
 
@@ -122,20 +122,42 @@ MOUSE_GRABBERS = {
 }
 
 
-def foreground_process(pane_id: str) -> str:
-    """The name of the program currently in the foreground of `pane_id`."""
+def foreground_process(pane_id: str) -> tuple[str, int]:
+    """The name and pid of the program in the foreground of `pane_id`."""
     if not pane_id:
-        return ""
+        return "", 0
     reply = api("pane.process_info", {"pane_id": pane_id}) or {}
     info = (reply.get("result") or {}).get("process_info") or {}
     processes = info.get("foreground_processes") or []
-    return processes[-1].get("name", "") if processes else ""
+    if not processes:
+        return "", 0
+    last = processes[-1]
+    return last.get("name", ""), int(last.get("pid") or 0)
 
 
 def mouse_owner(pane_id: str) -> str:
     """The program holding the mouse in `pane_id`, or "" if the pane is free."""
-    name = foreground_process(pane_id)
+    name, _ = foreground_process(pane_id)
     return name if name in MOUSE_GRABBERS else ""
+
+
+# Editors that answer `getregion()` over their own RPC socket. Classic Vim is
+# absent on purpose: `+clientserver` needs an X server for the registry, and
+# there is no `getregion()` to call.
+RPC_EDITORS = {"nvim"}
+
+
+def editor_selection(pane_id: str) -> str:
+    """What is selected in the pane's editor, asked directly.
+
+    Beats the clipboard when it answers, because a live visual selection is
+    unambiguously what the user meant, and the clipboard at that moment holds
+    something older by definition — the drag never reached it.
+    """
+    name, pid = foreground_process(pane_id)
+    if name not in RPC_EDITORS or not pid:
+        return ""
+    return nvim.visual_selection(pid)
 
 
 def _seen_path() -> Path:
@@ -259,6 +281,13 @@ def main(argv: list[str] | None = None) -> int:
 
     sel = selection.acquire()
     pane = selection.focused_pane(os.environ)
+
+    # Asked before the clipboard is trusted. Inside Neovim the drag never
+    # reached Herdr, so the clipboard is stale by construction — but Neovim
+    # itself knows, and answers in about 4 ms.
+    from_editor = editor_selection(pane)
+    if from_editor.strip():
+        sel = selection.Selection(text=from_editor, source="nvim", backend="rpc")
 
     # A program in mouse-reporting mode owns the drag, so Herdr never saw a
     # selection and the clipboard still holds whatever was there before. On its
