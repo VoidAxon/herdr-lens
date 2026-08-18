@@ -104,6 +104,39 @@ def close_popup() -> bool:
     return reply is not None and "error" not in reply
 
 
+# Programs that put the terminal in mouse-reporting mode. While one of these
+# has the pane, a drag belongs to *it* — Herdr never sees a selection, so
+# `copy_on_select` cannot fire and the clipboard still holds whatever was there
+# before. The popup then answers about that instead, silently.
+#
+# A list rather than "anything that is not a shell", because a TUI does not
+# necessarily grab the mouse: agent CLIs run full-screen and selection keeps
+# working in them. Add names as they turn up.
+MOUSE_GRABBERS = {
+    "vim", "nvim", "vi", "emacs", "helix", "hx", "kak", "micro",
+    "less", "more", "man", "most",
+    "htop", "top", "btop", "btm", "atop",
+    "tig", "lazygit", "gitui", "ranger", "yazi", "nnn", "lf", "mc",
+    "fzf", "k9s", "ncdu", "tmux", "screen",
+}
+
+
+def foreground_process(pane_id: str) -> str:
+    """The name of the program currently in the foreground of `pane_id`."""
+    if not pane_id:
+        return ""
+    reply = api("pane.process_info", {"pane_id": pane_id}) or {}
+    info = (reply.get("result") or {}).get("process_info") or {}
+    processes = info.get("foreground_processes") or []
+    return processes[-1].get("name", "") if processes else ""
+
+
+def mouse_owner(pane_id: str) -> str:
+    """The program holding the mouse in `pane_id`, or "" if the pane is free."""
+    name = foreground_process(pane_id)
+    return name if name in MOUSE_GRABBERS else ""
+
+
 def notify(title: str, body: str = "") -> None:
     """The only channel available when a popup cannot be opened.
 
@@ -200,6 +233,10 @@ def main(argv: list[str] | None = None) -> int:
         "text": sel.text,
         "selection_source": sel.source,
         "selection_backend": sel.backend,
+        # Passed along rather than resolved here: the viewer can ask Herdr what
+        # is running while it waits on the network, and this process must not
+        # spend a socket round-trip before the popup is on screen.
+        "pane_id": selection.focused_pane(os.environ),
     }
     return open_popup(write_job(payload))
 

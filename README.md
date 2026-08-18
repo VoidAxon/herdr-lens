@@ -575,6 +575,29 @@ Ctrl-B Alt-T
 The AI request lives in the popup, never in the action. That is what makes the
 popup appear before the network round-trip instead of after it.
 
+### Selecting inside vim, less, or htop
+
+A full-screen program that turns on mouse reporting owns the drag — Neovim does
+by default (`mouse=a`). Herdr never sees a selection, so `copy_on_select` cannot
+fire, and the clipboard still holds whatever was copied before. Left alone, the
+popup would then answer about *that*, confidently and about the wrong text.
+
+Lens asks Herdr what is running in the pane and says so:
+
+```
+Translation                                    ⚠ nvim has the mouse
+```
+
+It is a note, not a refusal: copying to the system clipboard works fine, and
+then the same key does the right thing.
+
+```vim
+"+y      " yank the visual selection to the system clipboard
+```
+
+The warning replaces the provider name rather than joining it, because in a
+narrow popup only one fits and the provider is the half you can infer.
+
 ### Where the selection comes from
 
 Herdr 0.8.0 does not populate `selected_text` on the keybinding path, so Lens

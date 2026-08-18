@@ -52,6 +52,9 @@ class State:
     done: bool = False
     scroll: int = 0
     copied_ticks: int = 0
+    # Set when the pane's foreground program owns the mouse, so a drag could
+    # not have reached the clipboard the selection came from.
+    stale_risk: str = ""
     status: str = ""
     mode: str = modes.GENERAL
     tick: int = 0
@@ -94,6 +97,15 @@ def translate(job: dict, state: State, cfg: config.Config | None = None) -> None
         with state.lock:
             state.status = f"{provider.name} · {provider.model}"
             state.mode = kind
+        # Only worth asking when the text came from the clipboard: that is the
+        # path a mouse-grabbing program silently breaks. Done here rather than
+        # in the action so it costs the network wait, not the time to first
+        # paint.
+        if job.get("selection_source") == "clipboard":
+            owner = action.mouse_owner(job.get("pane_id", ""))
+            if owner:
+                with state.lock:
+                    state.stale_risk = owner
         def show(partial: str) -> None:
             """Called per token: the popup fills in while the model is still
             writing, which is what most of the perceived speed comes from."""
@@ -150,6 +162,16 @@ def compose(state: State, width: int, height: int) -> str:
             body, gutter, sources = ["", f"  {spin}  translating…"], False, [0, 1]
             shown = ""
             title, status = state.title, state.status
+
+        if state.stale_risk:
+            # Replaces the provider, rather than joining it. Not an error — a
+            # `"+y` yank reaches the clipboard perfectly well — but it is the
+            # one fact the reader cannot see for themselves, that a *drag* in
+            # this pane never got here. The provider they can infer; at a narrow
+            # width the warning is what has to survive.
+            warning = f"⚠ {state.stale_risk} has the mouse"
+            spin = status.split(" ", 1)[0] if status and not state.done else ""
+            status = f"{spin} {warning}".strip()
 
         footer = "[c] copy   [j/k] scroll   [Esc] close"
         if state.copied_ticks > 0:
@@ -216,9 +238,12 @@ def prepare(job: dict, state: State) -> dict | None:
     if not selected.strip():
         state.error = (
             "No text selected.",
-            "Select text in a pane with the mouse, then press the key again.\n"
-            "Herdr Lens reads the selection from the clipboard, so `copy_on_select` "
-            "must stay enabled (it is on by default).",
+            "Select text with the mouse, then press the key again.\n\n"
+            "Lens reads the selection from the clipboard, so it needs Herdr's "
+            "`copy_on_select` (on by default).\n\n"
+            "In a full-screen program — vim, less, htop — the drag belongs to "
+            "that program and never reaches the clipboard. Copy to the system "
+            "clipboard instead: in vim that is `\"+y`.",
         )
         state.done = True
         return None

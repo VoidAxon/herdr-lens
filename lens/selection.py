@@ -61,3 +61,10 @@ def acquire(env: dict[str, str] | None = None, clipboard=None) -> Selection:
         return Selection(text=text, source="clipboard", backend=backend)
 
     return Selection(text="", source="none")
+
+
+def focused_pane(env: dict[str, str] | None = None) -> str:
+    """The pane the keypress came from, for diagnosing where the text was not."""
+    env = os.environ if env is None else env
+    context = _context(env)
+    return context.get("focused_pane_id") or env.get("HERDR_PANE_ID", "")
