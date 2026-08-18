@@ -6,7 +6,11 @@ version = "0.1.0"
 # would never guess were here.
 description = "Translate, look up, identify or summarise selected terminal text with AI, in a popup."
 min_herdr_version = "0.8.0"
-platforms = ["linux", "macos"]
+# Windows is included but unverified. Everything platform-specific has a path
+# there — msvcrt for keys, named pipes for Neovim, Get-CimInstance for child
+# processes — but none of it can be exercised from a POSIX machine, and the
+# README says so rather than implying otherwise.
+platforms = ["linux", "macos", "windows"]
 
 # Action ids resolve in a global namespace across all installed plugins, so this
 # is deliberately prefixed rather than being a bare "translate".

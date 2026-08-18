@@ -229,3 +229,18 @@ class ImportsWithoutPosix(unittest.TestCase):
             for name, module in saved.items():
                 if module is not None:
                     sys.modules[name] = module
+
+
+class ManifestMatchesTheCode(unittest.TestCase):
+    def test_declared_platforms_are_the_ones_with_an_implementation(self):
+        """The manifest is what the marketplace filters on, so a platform
+        listed there and absent from the code is a promise to a stranger."""
+        import tomllib
+        from pathlib import Path as P
+
+        root = P(__file__).resolve().parent.parent
+        manifest = tomllib.loads((root / "herdr-plugin.toml").read_text())
+        declared = set(manifest["platforms"])
+        self.assertEqual(declared, {"linux", "macos", "windows"})
+        source = (root / "lens" / "ui" / "console.py").read_text()
+        self.assertIn("msvcrt", source, "windows is declared with no key reader")
