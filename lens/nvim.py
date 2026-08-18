@@ -58,6 +58,11 @@ def _children(pid: int) -> list[int]:
     except OSError:
         pass
 
+    if os.name == "nt":
+        # No /proc and no pgrep. wmic is deprecated but present far more widely
+        # than a PowerShell one-liner is fast to start.
+        return _windows_children(pid)
+
     pgrep = shutil.which("pgrep")
     if not pgrep:
         return []
@@ -67,6 +72,24 @@ def _children(pid: int) -> list[int]:
     except (OSError, subprocess.TimeoutExpired):
         return []
     return [int(line) for line in result.stdout.split() if line.isdigit()]
+
+
+def _windows_children(pid: int) -> list[int]:
+    query = (
+        "Get-CimInstance Win32_Process -Filter "
+        f"\"ParentProcessId={pid}\" | Select-Object -ExpandProperty ProcessId"
+    )
+    shell = shutil.which("powershell.exe") or shutil.which("powershell")
+    if not shell:
+        return []
+    try:
+        result = subprocess.run(
+            [shell, "-NoProfile", "-NonInteractive", "-Command", query],
+            capture_output=True, timeout=5, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return [int(line) for line in result.stdout.split() if line.strip().isdigit()]
 
 
 def _descendants(pid: int, depth: int = 2) -> list[int]:
@@ -99,6 +122,10 @@ def socket_for(pid: int, env: dict[str, str] | None = None) -> str:
     runtime directory moves with `$XDG_RUNTIME_DIR`.
     """
     env = os.environ if env is None else env
+    if os.name == "nt":
+        return _windows_pipe(pid)
+
+    # getuid is POSIX-only, so it is reached only after the branch above.
     runtime = env.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
     bases = (Path(runtime), Path(env.get("TMPDIR", "/tmp")))
     for candidate in _descendants(pid):
@@ -110,6 +137,24 @@ def socket_for(pid: int, env: dict[str, str] | None = None) -> str:
             for match in matches:
                 if match.is_socket():
                     return str(match)
+    return ""
+
+
+def _windows_pipe(pid: int) -> str:
+    r"""Neovim's endpoint on Windows, which is a named pipe and not a socket.
+
+    The `\\.\pipe` namespace is listable, so the same "which pid owns it" question is asked
+    the same way — only the namespace differs.
+    """
+    try:
+        names = set(os.listdir(r"\\.\pipe"))
+    except OSError:
+        return ""
+    for candidate in _descendants(pid):
+        prefix = f"nvim.{candidate}."
+        for name in sorted(names):
+            if name.startswith(prefix):
+                return rf"\\.\pipe\{name}"
     return ""
 
 

@@ -22,6 +22,8 @@ _BACKENDS = [
     ("pbpaste", ["pbpaste"], None, 2),
     ("win32yank.exe", ["win32yank.exe", "-o"], None, 5),
     ("powershell.exe", ["powershell.exe", "-NoProfile", "-Command", "Get-Clipboard"], None, 10),
+    # Native Windows, where the interop suffix is not part of the name.
+    ("powershell", ["powershell", "-NoProfile", "-Command", "Get-Clipboard"], None, 10),
 ]
 
 

@@ -261,3 +261,46 @@ class Live(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WindowsLookup(unittest.TestCase):
+    """Neovim on Windows listens on a named pipe, not a Unix socket.
+
+    Unverifiable from here — no Windows to run it on — so what is asserted is
+    the shape: the same "which pid owns it" question, asked in the other
+    namespace, and no POSIX-only call reached on the way.
+    """
+
+    def test_the_pipe_name_is_built_for_a_child_pid(self):
+        with mock.patch("os.listdir", return_value=["nvim.584325.0", "other"]):
+            with mock.patch.object(nvim, "_descendants",
+                                   return_value=[584324, 584325]):
+                self.assertEqual(nvim._windows_pipe(584324),
+                                 r"\\.\pipe\nvim.584325.0")
+
+    def test_an_unrelated_pipe_is_ignored(self):
+        with mock.patch("os.listdir", return_value=["nvim.999.0"]):
+            with mock.patch.object(nvim, "_descendants", return_value=[1]):
+                self.assertEqual(nvim._windows_pipe(1), "")
+
+    def test_an_unlistable_namespace_is_not_an_error(self):
+        with mock.patch("os.listdir", side_effect=OSError):
+            self.assertEqual(nvim._windows_pipe(1), "")
+
+    def test_getuid_is_never_reached_on_windows(self):
+        """`os.getuid` does not exist there; calling it is an AttributeError,
+        not a fallback."""
+        with mock.patch.object(os, "name", "nt"):
+            with mock.patch.object(nvim, "_windows_pipe", return_value="") as pipe:
+                with mock.patch.object(os, "getuid",
+                                       side_effect=AssertionError("called")):
+                    self.assertEqual(nvim.socket_for(1, {}), "")
+        pipe.assert_called_once()
+
+    def test_children_are_asked_for_without_proc_or_pgrep(self):
+        with mock.patch.object(os, "name", "nt"):
+            with mock.patch.object(nvim, "_windows_children",
+                                   return_value=[2]) as query:
+                with mock.patch.object(Path, "iterdir", side_effect=OSError):
+                    self.assertEqual(nvim._children(1), [2])
+        query.assert_called_once_with(1)

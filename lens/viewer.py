@@ -8,18 +8,16 @@ from __future__ import annotations
 
 import json
 import os
-import select
 import shutil
 import sys
-import termios
 import threading
-import tty
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import action, clipboard, config, language, mode as modes
 from .providers import ProviderError, build
-from .ui import frame, style as styling
+from .ui import console, frame, style as styling
+from .ui.console import Console
 
 TICK = 0.1
 
@@ -271,53 +269,43 @@ def run(job: dict) -> int:
     if prepared is not None:
         threading.Thread(target=translate, args=(prepared, state), daemon=True).start()
 
-    fd = sys.stdin.fileno()
-    try:
-        saved = termios.tcgetattr(fd)
-    except termios.error:
-        saved = None
-
     out = sys.stdout
-    out.write(frame.CLEAR + frame.HIDE_CURSOR + "\033[?1000;1006h")
-    out.flush()
-    if saved is not None:
-        tty.setraw(fd)
-
     last = ""
     try:
-        while True:
-            size = shutil.get_terminal_size(fallback=(80, 24))
-            painted = compose(state, size.columns, size.lines)
-            if painted != last:
-                out.write(painted)
-                out.flush()
-                last = painted
+        with Console() as term:
+            out.write(frame.CLEAR + frame.HIDE_CURSOR + console.MOUSE_ON)
+            out.flush()
+            try:
+                while True:
+                    size = shutil.get_terminal_size(fallback=(80, 24))
+                    painted = compose(state, size.columns, size.lines)
+                    if painted != last:
+                        out.write(painted)
+                        out.flush()
+                        last = painted
 
-            ready, _, _ = select.select([fd], [], [], TICK)
-            if ready:
-                data = os.read(fd, 1024)
-                if not data:
-                    break
-                if data in (b"c", b"C"):
-                    clipboard.osc52(copyable(state), out)
+                    data = term.read(TICK)
+                    if data is not None:
+                        if not data:
+                            break
+                        if data in (b"c", b"C"):
+                            clipboard.osc52(copyable(state), out)
+                            with state.lock:
+                                state.copied_ticks = 12
+                            last = ""
+                            continue
+                        if not handle_key(data, state, max(1, size.lines - 5)):
+                            break
                     with state.lock:
-                        state.copied_ticks = 12
-                    last = ""
-                    continue
-                if not handle_key(data, state, max(1, size.lines - 5)):
-                    break
-            with state.lock:
-                if not state.done:
-                    state.tick += 1  # keeps the spinner alive while streaming
-                if state.copied_ticks:
-                    state.copied_ticks -= 1
+                        if not state.done:
+                            state.tick += 1  # keeps the spinner alive while streaming
+                        if state.copied_ticks:
+                            state.copied_ticks -= 1
+            finally:
+                out.write(console.MOUSE_OFF + frame.SHOW_CURSOR + frame.CLEAR)
+                out.flush()
     except (KeyboardInterrupt, OSError):
         pass
-    finally:
-        if saved is not None:
-            termios.tcsetattr(fd, termios.TCSADRAIN, saved)
-        out.write("\033[?1000;1006l" + frame.SHOW_CURSOR + frame.CLEAR)
-        out.flush()
     return 0
 
 
