@@ -128,3 +128,85 @@ class EmptySelectionMessage(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Suppression(unittest.TestCase):
+    """Refusing to open at all, when opening could only mislead.
+
+    Two conditions, and both are needed. A program owning the mouse means a
+    drag never reached Herdr; an unchanged clipboard means no other copy
+    happened either. Together there is nothing new to answer about. Either one
+    alone is normal: `"+y` in vim changes the clipboard, and re-translating the
+    same text in a shell is a perfectly ordinary thing to do.
+    """
+
+    def invoke(self, *, owner, changed, source="clipboard"):
+        import io
+        import tempfile
+        from pathlib import Path as P
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict("os.environ", {"HERDR_PLUGIN_STATE_DIR": tmp}):
+                if not changed:
+                    action.remember_selection("hello there")
+                with mock.patch("lens.selection.acquire", return_value=mock.Mock(
+                        text="hello there", source=source, backend="x")):
+                    with mock.patch("lens.action.mouse_owner", return_value=owner):
+                        with mock.patch("lens.action.notify") as notified:
+                            with mock.patch("lens.action.open_popup",
+                                            return_value=0) as opened:
+                                with mock.patch("sys.stderr", new=io.StringIO()):
+                                    code = action.main(["translate"])
+                remembered = (P(tmp) / "last-selection").exists()
+        return code, opened, notified, remembered
+
+    def test_a_stale_clipboard_in_vim_does_not_open_a_popup(self):
+        code, opened, notified, _ = self.invoke(owner="nvim", changed=False)
+        self.assertEqual(code, 0)
+        opened.assert_not_called()
+        notified.assert_called_once()
+
+    def test_the_notification_says_what_to_do_instead(self):
+        _, _, notified, _ = self.invoke(owner="nvim", changed=False)
+        body = " ".join(str(a) for a in notified.call_args[0])
+        self.assertIn("nvim", body)
+        self.assertIn('"+y', body)
+
+    def test_a_yank_in_vim_still_opens(self):
+        """`"+y` reaches the clipboard, so this keypress is correct."""
+        _, opened, notified, _ = self.invoke(owner="nvim", changed=True)
+        opened.assert_called_once()
+        notified.assert_not_called()
+
+    def test_repeating_the_same_selection_in_a_shell_still_opens(self):
+        """Nothing owns the mouse, so an unchanged clipboard means the user
+        genuinely wants that text again."""
+        _, opened, _, _ = self.invoke(owner="", changed=False)
+        opened.assert_called_once()
+
+    def test_a_context_selection_is_never_suppressed(self):
+        """Herdr handed us the text directly; the clipboard is irrelevant."""
+        _, opened, _, _ = self.invoke(owner="nvim", changed=False, source="context")
+        opened.assert_called_once()
+
+    def test_the_keypress_is_never_silent(self):
+        """Whatever happens, something appears — a popup or a notification."""
+        for owner, changed in ((("nvim"), False), ("nvim", True), ("", False)):
+            with self.subTest(owner=owner, changed=changed):
+                _, opened, notified, _ = self.invoke(owner=owner, changed=changed)
+                self.assertEqual(
+                    opened.called or notified.called, True,
+                    "the key did nothing visible",
+                )
+
+    def test_the_selection_itself_is_never_written_to_disk(self):
+        """This file outlives a job on purpose, so it must not hold the text."""
+        import tempfile
+        from pathlib import Path as P
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict("os.environ", {"HERDR_PLUGIN_STATE_DIR": tmp}):
+                action.remember_selection("a secret selection")
+                stored = (P(tmp) / "last-selection").read_text()
+        self.assertNotIn("secret", stored)
+        self.assertEqual(len(stored), 64, "a sha256 digest, not the text")

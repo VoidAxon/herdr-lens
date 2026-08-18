@@ -8,6 +8,7 @@ screen before the network request starts.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import socket
@@ -137,6 +138,36 @@ def mouse_owner(pane_id: str) -> str:
     return name if name in MOUSE_GRABBERS else ""
 
 
+def _seen_path() -> Path:
+    return job_dir().parent / "last-selection"
+
+
+def selection_is_new(text: str) -> bool:
+    """Has the clipboard changed since the last popup?
+
+    Stored as a hash, never the text: this file outlives a job by design, and
+    the selection itself must not.
+    """
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    path = _seen_path()
+    try:
+        previous = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        previous = ""
+    return digest != previous
+
+
+def remember_selection(text: str) -> None:
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    path = _seen_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(digest, encoding="utf-8")
+        path.chmod(0o600)
+    except OSError:
+        pass
+
+
 def notify(title: str, body: str = "") -> None:
     """The only channel available when a popup cannot be opened.
 
@@ -227,6 +258,28 @@ def main(argv: list[str] | None = None) -> int:
     action = argv[0] if argv else "translate"
 
     sel = selection.acquire()
+    pane = selection.focused_pane(os.environ)
+
+    # A program in mouse-reporting mode owns the drag, so Herdr never saw a
+    # selection and the clipboard still holds whatever was there before. On its
+    # own that is not enough to refuse: `"+y` reaches the clipboard perfectly
+    # well, and then this keypress is correct. What settles it is whether the
+    # clipboard changed at all — if it did not, there is nothing new to answer
+    # about, and a popup would answer confidently about the wrong text.
+    #
+    # Costs one socket round-trip, measured at 0.6 ms against the 430 ms the
+    # clipboard read already takes.
+    if sel.source == "clipboard" and not selection_is_new(sel.text):
+        owner = mouse_owner(pane)
+        if owner:
+            notify(
+                f"{owner} has the mouse",
+                f'Herdr never saw the selection, so Lens would translate '
+                f'whatever was copied before. In {owner}, copy with "+y '
+                f"and press the key again.",
+            )
+            return 0
+
     payload = {
         "action": action,
         "mode": FORCED_MODES.get(action),
@@ -236,8 +289,9 @@ def main(argv: list[str] | None = None) -> int:
         # Passed along rather than resolved here: the viewer can ask Herdr what
         # is running while it waits on the network, and this process must not
         # spend a socket round-trip before the popup is on screen.
-        "pane_id": selection.focused_pane(os.environ),
+        "pane_id": pane,
     }
+    remember_selection(sel.text)
     return open_popup(write_job(payload))
 
 

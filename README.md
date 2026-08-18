@@ -582,20 +582,31 @@ by default (`mouse=a`). Herdr never sees a selection, so `copy_on_select` cannot
 fire, and the clipboard still holds whatever was copied before. Left alone, the
 popup would then answer about *that*, confidently and about the wrong text.
 
-Lens asks Herdr what is running in the pane and says so:
+So Lens does not open the popup at all. It asks Herdr what is running, notices
+the clipboard has not changed either, and raises a notification instead:
 
-```
-Translation                                    ⚠ nvim has the mouse
-```
+> **nvim has the mouse** — Herdr never saw the selection, so Lens would
+> translate whatever was copied before. In nvim, copy with `"+y` and press the
+> key again.
 
-It is a note, not a refusal: copying to the system clipboard works fine, and
-then the same key does the right thing.
+Both conditions are needed, and either one alone is normal. `"+y` changes the
+clipboard, so a yank in vim opens the popup as usual:
 
 ```vim
 "+y      " yank the visual selection to the system clipboard
 ```
 
-The warning replaces the provider name rather than joining it, because in a
+And re-translating the same text in a shell is an ordinary thing to do, so an
+unchanged clipboard on its own suppresses nothing.
+
+If the popup does open on stale text — you copied something elsewhere, then
+pressed the key inside vim — the status line still says who has the mouse:
+
+```
+Translation                                    ⚠ nvim has the mouse
+```
+
+That warning replaces the provider name rather than joining it, because in a
 narrow popup only one fits and the provider is the half you can infer.
 
 ### Where the selection comes from
