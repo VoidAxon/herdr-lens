@@ -36,6 +36,10 @@ EXPRESSION = (
 
 TIMEOUT = 2.0
 
+# Read once and referred to by name: patching `os.name` in a test also changes
+# which Path implementation pathlib instantiates, which fails outright.
+WINDOWS = os.name == "nt"
+
 
 def _children(pid: int) -> list[int]:
     """Direct children of `pid`.
@@ -58,7 +62,7 @@ def _children(pid: int) -> list[int]:
     except OSError:
         pass
 
-    if os.name == "nt":
+    if WINDOWS:
         # No /proc and no pgrep. wmic is deprecated but present far more widely
         # than a PowerShell one-liner is fast to start.
         return _windows_children(pid)
@@ -122,7 +126,7 @@ def socket_for(pid: int, env: dict[str, str] | None = None) -> str:
     runtime directory moves with `$XDG_RUNTIME_DIR`.
     """
     env = os.environ if env is None else env
-    if os.name == "nt":
+    if WINDOWS:
         return _windows_pipe(pid)
 
     # getuid is POSIX-only, so it is reached only after the branch above.

@@ -147,11 +147,25 @@ class ThroughARealTerminal(unittest.TestCase):
                 break
 
         os.write(master, keys)
-        try:
-            code = proc.wait(timeout=6)
-        except subprocess.TimeoutExpired:
+        # Keep reading while it shuts down. The popup writes a teardown sequence
+        # on the way out, and a full pty buffer with nobody draining it blocks
+        # that write forever — the process then never exits and the failure
+        # looks like "Esc was ignored".
+        code = None
+        stop = time.time() + 6
+        while time.time() < stop:
+            ready, _, _ = select.select([master], [], [], 0.1)
+            if ready:
+                try:
+                    os.read(master, 4096)
+                except (BlockingIOError, OSError):
+                    pass
+            code = proc.poll()
+            if code is not None:
+                break
+        if code is None:
             proc.kill()
-            code = None
+            proc.wait(timeout=5)
         os.close(master)
         plain = re.sub(r"\033\[[0-9;?]*[a-zA-Z]|\033\][^\007]*\007", "",
                        out.decode("utf-8", "replace"))

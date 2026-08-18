@@ -290,7 +290,7 @@ class WindowsLookup(unittest.TestCase):
     def test_getuid_is_never_reached_on_windows(self):
         """`os.getuid` does not exist there; calling it is an AttributeError,
         not a fallback."""
-        with mock.patch.object(os, "name", "nt"):
+        with mock.patch.object(nvim, "WINDOWS", True):
             with mock.patch.object(nvim, "_windows_pipe", return_value="") as pipe:
                 with mock.patch.object(os, "getuid",
                                        side_effect=AssertionError("called")):
@@ -298,7 +298,7 @@ class WindowsLookup(unittest.TestCase):
         pipe.assert_called_once()
 
     def test_children_are_asked_for_without_proc_or_pgrep(self):
-        with mock.patch.object(os, "name", "nt"):
+        with mock.patch.object(nvim, "WINDOWS", True):
             with mock.patch.object(nvim, "_windows_children",
                                    return_value=[2]) as query:
                 with mock.patch.object(Path, "iterdir", side_effect=OSError):
