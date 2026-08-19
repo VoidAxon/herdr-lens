@@ -11,20 +11,11 @@ works out what you selected — a passage, a single word, a bare identifier, a
 screenful of build output — and answers in the shape that fits. No config file
 required, no API key if you already have Claude Code.
 
-```
-┌─ Dictionary ─────────────────────────────────┐
-│ verbose  /vərˈboʊs/                          │
-│                                              │
-│ 形容词  冗长的，啰嗦的                          │
-│ 形容词  (计算机) 输出详细信息的                  │
-│                                              │
-│ 1. Enable the `--verbose` flag to see every  │
-│    step it takes.                            │
-│    启用 --verbose 标志以查看每一步。            │
-├──────────────────────────────────────────────┤
-│ [c] copy   [j/k] scroll            [Esc]     │
-└──────────────────────────────────────────────┘
-```
+https://github.com/user-attachments/assets/1e30daca-74a9-4bfc-9873-679cf247c9fe
+
+*A word looked up in a man page, then a paragraph translated — the same key both
+times, deciding for itself which one you meant.*
+
 
 > [!IMPORTANT]
 > **Selected text leaves your machine.** It goes to whichever AI provider you
