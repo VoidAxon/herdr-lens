@@ -6,6 +6,7 @@ never write to a file Herdr does not read, and never touch a config it cannot
 understand.
 """
 
+import re
 import tempfile
 import tomllib
 import unittest
@@ -174,3 +175,49 @@ class Defaults(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QuickStartIsAccurate(unittest.TestCase):
+    """The first screen of the README is the only part most readers see.
+
+    It names keys, an action and four environment variables — every one of them
+    a thing that has already changed once in this project. A stale quick start
+    is worse than a long one: the reader follows it, nothing happens, and they
+    conclude the plugin is broken rather than the documentation.
+    """
+
+    @property
+    def quick(self):
+        readme = Path(__file__).resolve().parent.parent / "README.md"
+        return readme.read_text(encoding="utf-8").split("## Why you'd want it")[0]
+
+    def test_it_comes_before_everything_else(self):
+        body = (Path(__file__).resolve().parent.parent / "README.md").read_text()
+        sections = [line for line in body.splitlines() if line.startswith("## ")]
+        self.assertEqual(sections[0], "## Quick start")
+
+    def test_every_key_it_shows_is_one_setup_installs(self):
+        installed = {k.rsplit("+", 1)[1].upper() for k, _, _ in setup.BINDINGS}
+        shown = set(re.findall(r"<kbd>Alt-([A-Z])</kbd>", self.quick))
+        self.assertTrue(shown, "no keys shown at all")
+        self.assertTrue(
+            shown <= installed,
+            f"shows {shown - installed}, which lens-setup does not install",
+        )
+
+    def test_the_action_it_tells_you_to_run_exists(self):
+        import tomllib
+
+        root = Path(__file__).resolve().parent.parent
+        manifest = tomllib.loads((root / "herdr-plugin.toml").read_text())
+        ids = {action["id"] for action in manifest["actions"]}
+        for named in set(re.findall(r"lens-[a-z-]+", self.quick)):
+            with self.subTest(action=named):
+                self.assertIn(named, ids)
+
+    def test_it_lists_every_key_variable_that_is_detected(self):
+        from lens import config as cfg
+
+        for env, _, _ in cfg._CLOUD_PROVIDERS:
+            with self.subTest(env=env):
+                self.assertIn(env, self.quick)

@@ -33,6 +33,33 @@ required, no API key if you already have Claude Code.
 > Read [Privacy](#privacy) before you bind the key, and use a local model if the
 > text must not travel.
 
+## Quick start
+
+```bash
+herdr plugin install VoidAxon/herdr-lens
+herdr plugin action invoke lens-setup
+```
+
+Select text in any pane with the mouse, then press <kbd>Ctrl-B</kbd>
+<kbd>Alt-T</kbd>. That is the whole thing.
+
+There is no config file to write. Lens takes your language from `$LANG` and finds
+a provider on its own — an exported `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+`GROQ_API_KEY` or `GEMINI_API_KEY`, the `claude` CLI already on your `PATH`, or
+Ollama on localhost. If you have a Claude subscription, that last-but-one is you,
+and you need no API key at all.
+
+The one line most people end up writing, in
+`~/.config/herdr/plugins/config/herdr-lens/config.toml`:
+
+```toml
+target_language = "ja"    # default: guessed from $LANG
+```
+
+Two more keys come with `lens-setup`: <kbd>Ctrl-B</kbd> <kbd>Alt-E</kbd> explains
+what something is, <kbd>Ctrl-B</kbd> <kbd>Alt-S</kbd> summarises a screenful of
+output. Everything below is detail you can come back for.
+
 ## Why you'd want it
 
 - **One key, four answers.** A passage gets translated. A single word gets its
@@ -55,54 +82,6 @@ required, no API key if you already have Claude Code.
   Lens renders, so a crafted selection cannot write your clipboard or repaint
   your screen. See [Security](#security).
 
-## Without Herdr
-
-The plugin needs Herdr because a keybinding cannot open a popup by itself. The
-translation never did, so the same thing runs as a plain command — in any
-terminal, and in pipes, which no popup can serve:
-
-```bash
-lens "By default, grep prints the matching lines."
-#   默认情况下，grep 会打印匹配的行。
-
-lens verbose                       # a word still gets the dictionary
-kubectl logs pod-xyz | lens --summarize
-lens --explain 'git rebase --onto main feature~3 feature'
-lens --target ja "…"               # override the configured language
-```
-
-From a clone, `python3 -m lens`. To get the short name:
-
-```bash
-alias lens='python3 -m lens'       # with the clone on PYTHONPATH
-```
-
-It shares the plugin's config file, so a provider set up for one works for the
-other. Output streams when stdout is a terminal and arrives whole when it is a
-pipe — a partial value down a pipe reads as a complete one.
-
-## Windows
-
-WSL works and is what this is developed against: the plugin sees Linux, and
-nothing here knows the difference.
-
-Native Windows is **supported but unverified**. Everything platform-specific has
-a Windows path — the popup reads keys through `msvcrt` and translates console
-key codes into the same ANSI sequences the POSIX side produces, Neovim is looked
-up through `\\.\pipe` instead of a Unix socket, and child processes are found
-with `Get-CimInstance` where there is no `/proc`. None of it can be exercised
-from a POSIX machine, so it is asserted in shape only.
-
-What is verified even so: every module imports without `termios` or `tty`, the
-key translation table matches what the key handler actually reads, and the
-version guard was checked against a real Windows Python 3.10 (it refuses, which
-is correct — 3.11 is the floor).
-
-Expect the mouse wheel to be the first thing that does not work; it needs
-virtual-terminal input, which the console layer asks for but cannot insist on.
-[Issues welcome](https://github.com/VoidAxon/herdr-lens/issues) — a report of
-what happened is more useful than the guess in this paragraph.
-
 ## Requirements
 
 | | |
@@ -112,17 +91,14 @@ what happened is more useful than the guess in this paragraph.
 | Platforms | Linux and macOS, verified. Windows implemented but untested — see [Windows](#windows). WSL counts as Linux. |
 | A provider | An API key, the `claude` CLI, or Ollama — see [Configuration](#configuration) |
 
-## Install
+## Keybindings
 
-```bash
-herdr plugin install VoidAxon/herdr-lens
-herdr plugin action invoke lens-setup
-```
+`lens-setup` adds the keys and reloads Herdr. Herdr's plugin manifest has nowhere
+to declare a key, so some setup step is unavoidable — that is it, and everything
+below is only for doing it differently.
 
-The second line adds the keybindings and reloads Herdr. Herdr's plugin manifest
-has nowhere to declare a key, so some setup step is unavoidable — this is it.
-
-The keys go in a marked block and only that block is ever rewritten, so the
+It installs `prefix+alt+t`, `prefix+alt+e`, `prefix+alt+s`, and `prefix+t`. The
+keys go in a marked block and only that block is ever rewritten, so the
 step is both repeatable and reversible: your comments and bindings are carried
 across untouched, a key already taken is reported and skipped rather than
 stolen, re-running replaces the block instead of appending a second copy, and
@@ -150,16 +126,10 @@ description = "Translate selection"
 it, but it is `transpose-chars` in readline, so it is offered rather than
 installed. Add it yourself if you never use that.
 
-The keys `lens-setup` installs are `prefix+alt+t`, `prefix+alt+e`,
-`prefix+alt+s`, and `prefix+t`.
-
-That is the whole setup. If you already use Claude Code, there is nothing else
-to configure — Lens will use it. There is no config file to write and no API
-key to obtain.
-
-Requires Python 3.11+ (for `tomllib`). No third-party packages — nothing to
-`pip install`. Linux and macOS: the popup drives the terminal through `termios`
-and `tty`, which Windows does not provide.
+Fumbling <kbd>Alt</kbd> on `prefix+alt+t` lands on `prefix+t`, which is also
+translate — so the frequent one has no wrong answer. There is no such net for
+`e` and `s`: a fumbled <kbd>Alt</kbd> reaches Herdr's own `prefix+e` (edit the
+scrollback) and `prefix+s` (settings). Recoverable, but startling the first time.
 
 ## Use
 
@@ -531,6 +501,54 @@ panel_bg = "reset"
 published config reference — the only record is a commented line in the
 binary's own config template. Note that `herdr config check` does not validate
 colour values, so a typo here fails silently rather than reporting an error.
+
+## Without Herdr
+
+The plugin needs Herdr because a keybinding cannot open a popup by itself. The
+translation never did, so the same thing runs as a plain command — in any
+terminal, and in pipes, which no popup can serve:
+
+```bash
+lens "By default, grep prints the matching lines."
+#   默认情况下，grep 会打印匹配的行。
+
+lens verbose                       # a word still gets the dictionary
+kubectl logs pod-xyz | lens --summarize
+lens --explain 'git rebase --onto main feature~3 feature'
+lens --target ja "…"               # override the configured language
+```
+
+From a clone, `python3 -m lens`. To get the short name:
+
+```bash
+alias lens='python3 -m lens'       # with the clone on PYTHONPATH
+```
+
+It shares the plugin's config file, so a provider set up for one works for the
+other. Output streams when stdout is a terminal and arrives whole when it is a
+pipe — a partial value down a pipe reads as a complete one.
+
+## Windows
+
+WSL works and is what this is developed against: the plugin sees Linux, and
+nothing here knows the difference.
+
+Native Windows is **supported but unverified**. Everything platform-specific has
+a Windows path — the popup reads keys through `msvcrt` and translates console
+key codes into the same ANSI sequences the POSIX side produces, Neovim is looked
+up through `\\.\pipe` instead of a Unix socket, and child processes are found
+with `Get-CimInstance` where there is no `/proc`. None of it can be exercised
+from a POSIX machine, so it is asserted in shape only.
+
+What is verified even so: every module imports without `termios` or `tty`, the
+key translation table matches what the key handler actually reads, and the
+version guard was checked against a real Windows Python 3.10 (it refuses, which
+is correct — 3.11 is the floor).
+
+Expect the mouse wheel to be the first thing that does not work; it needs
+virtual-terminal input, which the console layer asks for but cannot insist on.
+[Issues welcome](https://github.com/VoidAxon/herdr-lens/issues) — a report of
+what happened is more useful than the guess in this paragraph.
 
 ## Privacy
 
