@@ -197,6 +197,8 @@ its shape instead of collapsing to column zero.
 | Key | |
 |---|---|
 | `c` | copy the result |
+| `/` | find — loose matching, so `clts` finds `client.ts` |
+| `n` / `N` | next / previous match; the current one is highlighted differently |
 | `j` / `k` / arrows / `PgUp` / `PgDn` / wheel | scroll |
 | `g` / `G` | jump to top / bottom |
 | `Esc` / `q` | close |

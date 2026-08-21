@@ -56,6 +56,16 @@ class State:
     status: str = ""
     mode: str = modes.GENERAL
     tick: int = 0
+    # Search. `typing` is the moment between `/` and Enter, when keystrokes
+    # are query text rather than commands.
+    query: str = ""
+    typing: bool = False
+    draft: str = ""
+    # Which match is current, as an index into the match list. Not the scroll
+    # position: scroll is clamped to the content height, so a match in the last
+    # screenful would be unreachable if the two were the same number.
+    hit: int = -1
+    body: list[str] = field(default_factory=list)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -171,14 +181,30 @@ def compose(state: State, width: int, height: int) -> str:
             spin = status.split(" ", 1)[0] if status and not state.done else ""
             status = f"{spin} {warning}".strip()
 
-        footer = "[c] copy   [j/k] scroll   [Esc] close"
-        if state.copied_ticks > 0:
-            footer = "copied to clipboard"
+        # handle_key jumps between matches and has no body of its own; compose
+        # runs immediately before every read, so this is always the body on
+        # screen rather than a stale one.
+        state.body = body
         state.scroll = min(state.scroll, frame.max_scroll(body, height))
         scroll = state.scroll
+        rows = _rows_matching(body, state.query) if state.query else []
+        current = rows[state.hit] if 0 <= state.hit < len(rows) else -1
+
+        footer = "[c] copy   [/] find   [j/k] scroll   [Esc] close"
+        if state.copied_ticks > 0:
+            footer = "copied to clipboard"
+        if state.typing:
+            # The footer becomes the input line: a popup this small has nowhere
+            # else to put one, and it is where the eye already is.
+            footer = f"/{state.draft}▏"
+        elif state.query:
+            here = state.hit + 1 if 0 <= state.hit < len(rows) else 0
+            footer = (f"/{state.query}   {here}/{len(rows)}   [n/N] next/prev   [Esc] close"
+                      if rows else f"/{state.query}   no match   [Esc] close")
         # Errors are prose, whatever mode produced them.
         mode = modes.GENERAL if state.error else state.mode
-        style = styling.styler(mode, shown, sources)
+        style = styling.styler(mode, shown, sources,
+                               highlight=state.query, current=current)
 
     return frame.render(
         title=title, body=body, footer=footer, width=width, height=height,
@@ -194,12 +220,68 @@ def copyable(state: State) -> str:
         return state.text
 
 
+def _rows_matching(body: list[str], query: str) -> list[int]:
+    return [i for i, line in enumerate(body) if styling.matches(line, query)]
+
+
+def _seek(state: State, forward: bool, rows_visible: int) -> None:
+    """Move to the next match, wrapping, and scroll only enough to show it."""
+    rows = _rows_matching(state.body, state.query)
+    if not rows:
+        state.hit = -1
+        return
+    if state.hit < 0:
+        # First jump after a query: start from what is on screen rather than
+        # from the top, so searching does not throw away where you were.
+        state.hit = next((i for i, r in enumerate(rows) if r >= state.scroll), 0)
+    else:
+        state.hit = (state.hit + (1 if forward else -1)) % len(rows)
+
+    row = rows[state.hit]
+    if row < state.scroll:
+        state.scroll = row
+    elif row >= state.scroll + rows_visible:
+        # Put it on the last visible line rather than the first: the lines
+        # after a hit are usually the reason you were looking for it.
+        state.scroll = row - rows_visible + 1
+
+
 def handle_key(data: bytes, state: State, page: int) -> bool:
     """Apply one input chunk. Returns False when the popup should close."""
+    with state.lock:
+        if state.typing:
+            # Everything is query text here, so Esc has to cancel the search
+            # rather than close the popup — otherwise a mistyped search costs
+            # you the result you were searching.
+            if data == b"\x1b":
+                state.typing, state.draft = False, ""
+            elif data in (b"\r", b"\n"):
+                state.typing = False
+                state.query, state.draft = state.draft, ""
+                state.hit = -1
+                _seek(state, True, page)
+            elif data in (b"\x7f", b"\x08"):
+                state.draft = state.draft[:-1]
+            elif data == b"\x03":
+                state.typing, state.draft, state.query = False, "", ""
+            else:
+                text = data.decode("utf-8", "ignore")
+                state.draft += "".join(c for c in text if c.isprintable())
+            return True
+
     if data in (b"\x1b", b"q", b"Q", b"\x03"):
         return False
 
     with state.lock:
+        if data == b"/":
+            state.typing, state.draft = True, ""
+            return True
+        if data == b"n":
+            _seek(state, True, page)
+            return True
+        if data == b"N":
+            _seek(state, False, page)
+            return True
         if data in (b"j", b"\x1b[B"):
             state.scroll += 1
         elif data in (b"k", b"\x1b[A"):

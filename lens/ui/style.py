@@ -39,6 +39,7 @@ DIM = "\033[2m"
 CYAN = "\033[36m"
 MAGENTA = "\033[35m"
 YELLOW = "\033[33m"
+REVERSE = "\033[7m"
 
 HEADWORD = BOLD
 IDENTIFIER = BOLD + CYAN
@@ -46,6 +47,11 @@ CODE = CYAN
 PART_OF_SPEECH = MAGENTA
 MARKER = YELLOW
 SECONDARY = DIM
+# Inverse video for a hit, the convention every pager uses. The one you are
+# standing on gets a background instead, so `n` visibly lands somewhere rather
+# than just changing a counter.
+MATCH = REVERSE
+MATCH_CURRENT = "\033[43m\033[30m"
 
 # `--verbose`, `core.autocrlf` — the model marks these itself, and the
 # backticks stay visible so the styled line keeps its original width.
@@ -229,7 +235,75 @@ def _role_spans(role: str, line: str, mode: str) -> tuple[list[Span], str]:
     return [], ""
 
 
-def styler(mode: str, text: str = "", sources: list[int] | None = None):
+def _greedy(haystack: str, needle: str, start: int) -> list[int]:
+    at, found = start, []
+    for ch in needle:
+        at = haystack.find(ch, at)
+        if at == -1:
+            return []
+        found.append(at)
+        at += 1
+    return found
+
+
+def _subsequence(haystack: str, needle: str) -> list[int]:
+    """Positions of `needle`'s characters in order, or [] if not all present.
+
+    Tried from every possible first character and the tightest span wins.
+    Plain leftmost-greedy would answer `clts` on `./src/api/client.ts` with the
+    `c` of `src`, scattering the highlight across the whole path instead of
+    landing on `client.ts` — the same characters, but unreadable as an
+    explanation of why the line matched.
+    """
+    best = []
+    for i, ch in enumerate(haystack):
+        if ch != needle[0]:
+            continue
+        found = _greedy(haystack, needle, i)
+        if found and (not best or found[-1] - found[0] < best[-1] - best[0]):
+            best = found
+        if best and best[-1] - best[0] == len(needle) - 1:
+            break  # contiguous; nothing can be tighter
+    return best
+
+
+def matches(line: str, query: str) -> bool:
+    """Does `line` match, contiguously or loosely?"""
+    if not query:
+        return False
+    haystack, needle = line.lower(), query.lower()
+    return needle in haystack or bool(_subsequence(haystack, needle))
+
+
+def _match_spans(line: str, query: str, code: str = MATCH) -> list[Span]:
+    """Where `query` matched, case-insensitively.
+
+    Contiguous occurrences first; only if there are none does it fall back to a
+    loose subsequence, and then the whole span from the first matched character
+    to the last is marked as one run.
+
+    Marking each matched character instead would be the literal truth —
+    `./src/api/[c][l]ien[t].t[s]` — but it reads as damage rather than as an
+    answer. The span covers a few characters that did not match, and that is
+    the better lie: the point of the highlight is to find the line again, not
+    to explain the algorithm, and those characters are inside the thing you
+    were looking for anyway.
+    """
+    if not query:
+        return []
+    haystack, needle = line.lower(), query.lower()
+    spans, at = [], haystack.find(needle)
+    while at != -1:
+        spans.append((at, at + len(needle), code))
+        at = haystack.find(needle, at + len(needle))
+    if spans:
+        return spans
+    found = _subsequence(haystack, needle)
+    return [(found[0], found[-1] + 1, code)] if found else []
+
+
+def styler(mode: str, text: str = "", sources: list[int] | None = None,
+           highlight: str = "", current: int = -1):
     """Return a per-line styling function for `mode`.
 
     `text` is the unwrapped result and `sources` maps each wrapped row to its
@@ -252,6 +326,15 @@ def styler(mode: str, text: str = "", sources: list[int] | None = None):
         )
         inline, ends_inside = _inline(line, open_span.get(row, False), continues)
         spans += inline
+        # A hit wins every overlap: it is the thing being looked for, and a
+        # code span swallowing it would hide the answer.
+        hits = _match_spans(
+            line, highlight, MATCH_CURRENT if row == current else MATCH
+        )
+        if hits:
+            spans = [s for s in spans
+                     if not any(a < s[1] and s[0] < b for a, b, _ in hits)]
+            spans += hits
         open_span[row + 1] = ends_inside and continues
         return _apply(line, spans, base)
 
