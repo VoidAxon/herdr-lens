@@ -163,7 +163,7 @@ class Seeking(unittest.TestCase):
         )
         state, press, frame_of = driver(text=long)
         press(b"/", *typed("TS2345"), b"\r")
-        total = len(viewer._rows_matching(state.body, "TS2345"))
+        total = len(viewer._hits(state.body, "TS2345"))
         self.assertGreater(total, 1)
         for _ in range(total - 1):
             press(b"n")
@@ -176,6 +176,28 @@ class Seeking(unittest.TestCase):
         before = state.scroll
         press(b"n")
         self.assertEqual(state.scroll, before)
+
+    def test_two_hits_on_one_row_count_separately(self):
+        """The unit is an occurrence: counting lines makes `n` skip hits and
+        paints every hit on the row as the current one."""
+        state, press, frame_of = driver(
+            text="client.ts 和 client.ts 都要改\n另一行提到 client.ts")
+        press(b"/", *typed("client.ts"), b"\r")
+        self.assertIn("1/3", frame_of())
+
+    def test_only_one_hit_is_ever_current(self):
+        state, press, frame_of = driver(
+            text="client.ts 和 client.ts 都要改\n另一行提到 client.ts")
+        press(b"/", *typed("client.ts"), b"\r")
+        painted = frame_of()
+        self.assertEqual(painted.count(style.MATCH_CURRENT), 1)
+
+    def test_n_walks_hits_within_one_row(self):
+        state, press, frame_of = driver(
+            text="client.ts 和 client.ts 都要改\n另一行提到 client.ts")
+        press(b"/", *typed("client.ts"), b"\r", b"n")
+        self.assertIn("2/3", frame_of())
+        self.assertEqual(state.hit, 1)
 
     def test_the_current_match_is_coloured_differently(self):
         state, press, frame_of = driver()
@@ -199,8 +221,8 @@ class Seeking(unittest.TestCase):
         press(b"G")
         state.scroll = 30
         press(b"/", *typed("TS2345"), b"\r")
-        rows = viewer._rows_matching(state.body, "TS2345")
-        self.assertGreaterEqual(rows[state.hit], 30)
+        hits = viewer._hits(state.body, "TS2345")
+        self.assertGreaterEqual(hits[state.hit][0], 30)
 
 
 class Invariant(unittest.TestCase):

@@ -187,8 +187,8 @@ def compose(state: State, width: int, height: int) -> str:
         state.body = body
         state.scroll = min(state.scroll, frame.max_scroll(body, height))
         scroll = state.scroll
-        rows = _rows_matching(body, state.query) if state.query else []
-        current = rows[state.hit] if 0 <= state.hit < len(rows) else -1
+        hits = _hits(body, state.query)
+        current = hits[state.hit] if 0 <= state.hit < len(hits) else None
 
         footer = "[c] copy   [/] find   [j/k] scroll   [Esc] close"
         if state.copied_ticks > 0:
@@ -198,9 +198,9 @@ def compose(state: State, width: int, height: int) -> str:
             # else to put one, and it is where the eye already is.
             footer = f"/{state.draft}▏"
         elif state.query:
-            here = state.hit + 1 if 0 <= state.hit < len(rows) else 0
-            footer = (f"/{state.query}   {here}/{len(rows)}   [n/N] next/prev   [Esc] close"
-                      if rows else f"/{state.query}   no match   [Esc] close")
+            here = state.hit + 1 if 0 <= state.hit < len(hits) else 0
+            footer = (f"/{state.query}   {here}/{len(hits)}   [n/N] next/prev   [Esc] close"
+                      if hits else f"/{state.query}   no match   [Esc] close")
         # Errors are prose, whatever mode produced them.
         mode = modes.GENERAL if state.error else state.mode
         style = styling.styler(mode, shown, sources,
@@ -220,24 +220,35 @@ def copyable(state: State) -> str:
         return state.text
 
 
-def _rows_matching(body: list[str], query: str) -> list[int]:
-    return [i for i, line in enumerate(body) if styling.matches(line, query)]
+def _hits(body: list[str], query: str) -> list[tuple[int, int]]:
+    """Every occurrence, as (row, start).
+
+    The unit is an occurrence rather than a line. A row can hold more than one,
+    and counting lines makes `n` skip hits and makes "current" point at all of
+    them at once.
+    """
+    if not query:
+        return []
+    return [(row, start)
+            for row, line in enumerate(body)
+            for start, _ in styling.spans_in(line, query)]
 
 
 def _seek(state: State, forward: bool, rows_visible: int) -> None:
-    """Move to the next match, wrapping, and scroll only enough to show it."""
-    rows = _rows_matching(state.body, state.query)
-    if not rows:
+    """Move to the next occurrence, wrapping, and scroll only to reach it."""
+    hits = _hits(state.body, state.query)
+    if not hits:
         state.hit = -1
         return
     if state.hit < 0:
         # First jump after a query: start from what is on screen rather than
         # from the top, so searching does not throw away where you were.
-        state.hit = next((i for i, r in enumerate(rows) if r >= state.scroll), 0)
+        state.hit = next((i for i, (r, _) in enumerate(hits)
+                          if r >= state.scroll), 0)
     else:
-        state.hit = (state.hit + (1 if forward else -1)) % len(rows)
+        state.hit = (state.hit + (1 if forward else -1)) % len(hits)
 
-    row = rows[state.hit]
+    row = hits[state.hit][0]
     if row < state.scroll:
         state.scroll = row
     elif row >= state.scroll + rows_visible:

@@ -267,6 +267,11 @@ def _subsequence(haystack: str, needle: str) -> list[int]:
     return best
 
 
+def spans_in(line: str, query: str) -> list[tuple[int, int]]:
+    """Where `query` occurs in `line`, as (start, end) pairs."""
+    return [(a, b) for a, b, _ in _match_spans(line, query)]
+
+
 def matches(line: str, query: str) -> bool:
     """Does `line` match, contiguously or loosely?"""
     if not query:
@@ -303,7 +308,7 @@ def _match_spans(line: str, query: str, code: str = MATCH) -> list[Span]:
 
 
 def styler(mode: str, text: str = "", sources: list[int] | None = None,
-           highlight: str = "", current: int = -1):
+           highlight: str = "", current: tuple[int, int] | None = None):
     """Return a per-line styling function for `mode`.
 
     `text` is the unwrapped result and `sources` maps each wrapped row to its
@@ -328,9 +333,12 @@ def styler(mode: str, text: str = "", sources: list[int] | None = None,
         spans += inline
         # A hit wins every overlap: it is the thing being looked for, and a
         # code span swallowing it would hide the answer.
-        hits = _match_spans(
-            line, highlight, MATCH_CURRENT if row == current else MATCH
-        )
+        # Marked per occurrence, not per line: a row can hold several, and
+        # painting all of them as "current" points at more than one thing.
+        hits = [
+            (a, b, MATCH_CURRENT if current == (row, a) else MATCH)
+            for a, b, _ in _match_spans(line, highlight)
+        ]
         if hits:
             spans = [s for s in spans
                      if not any(a < s[1] and s[0] < b for a, b, _ in hits)]
